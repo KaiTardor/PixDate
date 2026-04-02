@@ -18,3 +18,5 @@ local.properties
 *.keystore
 .env
 secrets.properties
+.idea/
+.gitignore
