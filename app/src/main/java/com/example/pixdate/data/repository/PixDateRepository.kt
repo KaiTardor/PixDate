@@ -1,0 +1,212 @@
+package com.example.pixdate.data.repository
+
+import android.util.Log
+import com.example.pixdate.data.local.CsvPhotoRow
+import com.example.pixdate.data.local.dao.FolderDao
+import com.example.pixdate.data.local.dao.PhotoAnalysisDao
+import com.example.pixdate.data.local.dao.PhotoDao
+import com.example.pixdate.data.local.dao.PhotoTagCrossRefDao
+import com.example.pixdate.data.local.dao.TagDao
+import com.example.pixdate.data.local.entity.FolderEntity
+import com.example.pixdate.data.local.entity.PhotoAnalysisEntity
+import com.example.pixdate.data.local.entity.PhotoEntity
+import com.example.pixdate.data.local.entity.PhotoTagCrossRef
+import com.example.pixdate.data.local.entity.TagEntity
+import kotlinx.coroutines.flow.Flow
+
+class PixDateRepository(
+    private val photoDao: PhotoDao,
+    private val photoAnalysisDao: PhotoAnalysisDao,
+    private val tagDao: TagDao,
+    private val photoTagCrossRefDao: PhotoTagCrossRefDao,
+    private val folderDao: FolderDao
+) {
+
+    companion object {
+        private const val TAG = "PIXDATE_CSV"
+    }
+
+    // ── Escritura individual ──────────────────────────────────────
+
+    suspend fun insertFolder(folder: FolderEntity): Long {
+        return folderDao.insertFolder(folder)
+    }
+
+    suspend fun insertPhoto(photo: PhotoEntity): Long {
+        return photoDao.insertPhoto(photo)
+    }
+
+    suspend fun insertAnalysis(analysis: PhotoAnalysisEntity): Long {
+        return photoAnalysisDao.insertAnalysis(analysis)
+    }
+
+    suspend fun insertTag(tag: TagEntity): Long {
+        return tagDao.insertTag(tag)
+    }
+
+    suspend fun insertPhotoTagCrossRef(crossRef: PhotoTagCrossRef) {
+        photoTagCrossRefDao.insertPhotoTagCrossRef(crossRef)
+    }
+
+    // ── Lectura completa (Flow) ──────────────────────────────────
+
+    fun getAllPhotosFlow(): Flow<List<PhotoEntity>> {
+        return photoDao.getAllPhotosFlow()
+    }
+
+    // ── Lectura con filtro (Flow) ────────────────────────────────
+
+    fun getProcessedPhotosFlow(): Flow<List<PhotoEntity>> {
+        return photoDao.getPhotosByProcessedStatusFlow(true)
+    }
+
+    fun getPhotosByFolderFlow(folderId: Long): Flow<List<PhotoEntity>> {
+        return photoDao.getPhotosByFolderFlow(folderId)
+    }
+
+    // ── Actualizaciones ──────────────────────────────────────────
+
+    suspend fun updateProcessedStatus(photoId: Long, isProcessed: Boolean) {
+        photoDao.updateProcessedStatus(
+            photoId = photoId,
+            isProcessed = isProcessed,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    // ── Consultas auxiliares ──────────────────────────────────────
+
+    suspend fun getAllFolders(): List<FolderEntity> {
+        return folderDao.getAllFolders()
+    }
+
+    suspend fun getAllTags(): List<TagEntity> {
+        return tagDao.getAllTags()
+    }
+
+    suspend fun getAnalysisByPhotoId(photoId: Long): PhotoAnalysisEntity? {
+        return photoAnalysisDao.getAnalysisByPhotoId(photoId)
+    }
+
+    suspend fun getTagByName(tagName: String): TagEntity? {
+        return tagDao.getTagByName(tagName)
+    }
+
+    suspend fun getFolderByName(folderName: String): FolderEntity? {
+        return folderDao.getFolderByName(folderName)
+    }
+
+    suspend fun getPhotoCount(): Int {
+        return photoDao.getPhotoCount()
+    }
+
+    suspend fun getTagsByPhotoId(photoId: Long): List<TagEntity> {
+        return tagDao.getTagsByPhotoId(photoId)
+    }
+
+    suspend fun getFolderById(folderId: Long): FolderEntity? {
+        return folderDao.getFolderById(folderId)
+    }
+
+    // ── Importación masiva desde CSV ─────────────────────────────
+
+    /**
+     * Importa una lista de filas CSV en la base de datos Room.
+     * Crea carpetas, fotos, análisis, tags y relaciones foto-tag.
+     * Es idempotente: comprueba si ya existen carpetas y tags antes de crearlos.
+     *
+     * @param rows Lista de CsvPhotoRow parseadas del CSV.
+     * @return Número de fotos insertadas.
+     */
+    suspend fun importFromCsv(rows: List<CsvPhotoRow>): Int {
+        var insertedCount = 0
+        val now = System.currentTimeMillis()
+
+        // Cache para evitar queries repetidas de carpetas y tags
+        val folderCache = mutableMapOf<String, Long>()
+        val tagCache = mutableMapOf<String, Long>()
+
+        for (row in rows) {
+
+            // 1. Buscar o crear la carpeta (por mainCategory)
+            val folderId = folderCache.getOrPut(row.mainCategory) {
+                val existing = folderDao.getFolderByName(row.mainCategory)
+                if (existing != null) {
+                    Log.d(TAG, "Carpeta ya existe: ${row.mainCategory} (id=${existing.folderId})")
+                    existing.folderId
+                } else {
+                    val id = folderDao.insertFolder(
+                        FolderEntity(
+                            name = row.mainCategory,
+                            description = "Carpeta generada automáticamente para imágenes de categoría ${row.mainCategory}",
+                            isAutoGenerated = true,
+                            createdAt = now
+                        )
+                    )
+                    Log.d(TAG, "Carpeta creada: ${row.mainCategory} (id=$id)")
+                    id
+                }
+            }
+
+            // 2. Insertar la foto
+            val photoId = photoDao.insertPhoto(
+                PhotoEntity(
+                    contentUri = "file:///android_asset/sample_images/${row.fileName}",
+                    dateTaken = now - (rows.size - row.sampleId) * 86_400_000L, // Fechas escalonadas (1 día entre cada una)
+                    displayName = row.fileName,
+                    mimeType = "image/jpeg",
+                    isProcessed = true,
+                    folderId = folderId,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+            Log.d(TAG, "Foto insertada: ${row.fileName} (id=$photoId, folder=$folderId)")
+
+            // 3. Insertar el análisis asociado
+            val analysisId = photoAnalysisDao.insertAnalysis(
+                PhotoAnalysisEntity(
+                    photoId = photoId,
+                    description = row.captionReference,
+                    mainCategory = row.mainCategory,
+                    modelUsed = "csv-import",
+                    processedAt = now,
+                    confidence = null,
+                    errorMessage = null
+                )
+            )
+            Log.d(TAG, "Análisis insertado para foto $photoId (id=$analysisId)")
+
+            // 4. Insertar tags y relaciones foto-tag
+            for (tagName in row.tags) {
+                val tagId = tagCache.getOrPut(tagName) {
+                    val existing = tagDao.getTagByName(tagName)
+                    if (existing != null) {
+                        existing.tagId
+                    } else {
+                        val id = tagDao.insertTag(
+                            TagEntity(
+                                name = tagName,
+                                source = "AUTO"
+                            )
+                        )
+                        Log.d(TAG, "Tag creado: $tagName (id=$id)")
+                        id
+                    }
+                }
+
+                photoTagCrossRefDao.insertPhotoTagCrossRef(
+                    PhotoTagCrossRef(
+                        photoId = photoId,
+                        tagId = tagId
+                    )
+                )
+            }
+
+            insertedCount++
+        }
+
+        Log.d(TAG, "═══ Importación completada: $insertedCount fotos insertadas ═══")
+        return insertedCount
+    }
+}
