@@ -73,6 +73,7 @@ fun PixDateApp() {
 
     val context = LocalContext.current
 
+    // Inicializar la base de datos y el repositorio una sola vez
     val database = remember { AppDatabase.getDatabase(context) }
 
     val repository = remember {
@@ -99,7 +100,7 @@ fun PixDateApp() {
         galleryViewModel.autoImportIfEmpty(context)
     }
 
-    // ── Lógica de captura de cámara ──────────────────────────────
+    // Lógica de captura de cámara
 
     // Estado para guardar la URI y nombre del archivo temporal
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
@@ -143,12 +144,14 @@ fun PixDateApp() {
         cameraLauncher.launch(uri)
     }
 
-    // ── UI ────────────────────────────────────────────────────────
+    // ##########################################
+    // ── UI
+    // ##########################################
 
     Scaffold(
         topBar = {
             Surface(
-                color = MaterialTheme.colorScheme.primary, // Naranja
+                color = MaterialTheme.colorScheme.primary, // Naranja pastel
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -252,6 +255,7 @@ fun PixDateApp() {
 }
 
 @Composable
+// Barra inferior personalizada con 3 secciones: GALERÍA, CÁMARA y CARPETAS
 fun PixDateBottomBar(
     selectedSection: BottomSection,
     onSectionSelected: (BottomSection) -> Unit
@@ -284,7 +288,7 @@ fun PixDateBottomBar(
                 onClick = { onSectionSelected(BottomSection.GALLERY) }
             )
 
-            // Botón central: CÁMARA (antes era "+")
+            // Botón central: CÁMARA
             CameraBarItem(
                 modifier = Modifier.weight(0.2f),
                 onClick = { onSectionSelected(BottomSection.CAMERA) }
@@ -307,6 +311,7 @@ fun PixDateBottomBar(
 }
 
 @Composable
+// Item individual para GALERÍA y CARPETAS en la barra inferior
 private fun BottomBarItem(
     modifier: Modifier = Modifier,
     selected: Boolean,
@@ -350,6 +355,7 @@ private fun BottomBarItem(
 }
 
 @Composable
+// Item central personalizado para el botón de CÁMARA
 private fun CameraBarItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
