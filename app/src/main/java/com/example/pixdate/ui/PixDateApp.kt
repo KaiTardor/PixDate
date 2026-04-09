@@ -1,9 +1,14 @@
 package com.example.pixdate.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +20,16 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -37,20 +46,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.pixdate.data.local.database.AppDatabase
 import com.example.pixdate.data.repository.PixDateRepository
 import com.example.pixdate.ui.screens.gallery.GalleryScreen
+import com.example.pixdate.ui.screens.gallery.GalleryViewMode
 import com.example.pixdate.ui.screens.gallery.GalleryViewModel
 import com.example.pixdate.ui.screens.gallery.GalleryViewModelFactory
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class BottomSection {
     GALLERY,
-    ADD,
+    CAMERA,
     FOLDERS
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PixDateApp() {
     var selectedSection by rememberSaveable { mutableStateOf(BottomSection.GALLERY) }
@@ -73,43 +89,151 @@ fun PixDateApp() {
         factory = GalleryViewModelFactory(repository)
     )
 
-    val photos by galleryViewModel.photos.collectAsStateWithLifecycle()
+    val groupedPhotos by galleryViewModel.groupedPhotos.collectAsStateWithLifecycle()
+    val viewMode by galleryViewModel.viewMode.collectAsStateWithLifecycle()
+    val currentYearMonth by galleryViewModel.currentYearMonth.collectAsStateWithLifecycle()
+    val selectedDate by galleryViewModel.selectedDate.collectAsStateWithLifecycle()
 
     // Auto-importar CSV si la BD está vacía (simula fotos del usuario)
     LaunchedEffect(Unit) {
         galleryViewModel.autoImportIfEmpty(context)
     }
 
+    // ── Lógica de captura de cámara ──────────────────────────────
+
+    // Estado para guardar la URI y nombre del archivo temporal
+    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingPhotoFileName by remember { mutableStateOf("") }
+
+    // Launcher que abre la cámara nativa y recibe el resultado
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && pendingPhotoUri != null) {
+            galleryViewModel.insertCapturedPhoto(
+                uri = pendingPhotoUri.toString(),
+                fileName = pendingPhotoFileName
+            )
+            // Volver a la galería para ver la foto nueva
+            selectedSection = BottomSection.GALLERY
+        }
+    }
+
+    /**
+     * Crea un archivo temporal en la caché, obtiene su URI segura
+     * via FileProvider, y lanza la cámara nativa.
+     */
+    fun launchCamera() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "PIXDATE_$timestamp.jpg"
+
+        // Crear el directorio photos/ dentro de la caché si no existe
+        val photosDir = File(context.cacheDir, "photos")
+        if (!photosDir.exists()) photosDir.mkdirs()
+
+        val photoFile = File(photosDir, fileName)
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            photoFile
+        )
+
+        pendingPhotoUri = uri
+        pendingPhotoFileName = fileName
+        cameraLauncher.launch(uri)
+    }
+
+    // ── UI ────────────────────────────────────────────────────────
+
     Scaffold(
+        topBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.primary, // Naranja
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "PIXDATE",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+
+                    Row {
+                        IconButton(
+                            onClick = { galleryViewModel.toggleViewMode() }
+                        ) {
+                            Icon(
+                                imageVector = if (viewMode == GalleryViewMode.CALENDAR) Icons.Default.List else Icons.Default.CalendarMonth,
+                                contentDescription = "Cambiar vista",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { galleryViewModel.insertSamplePhoto() }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Añadir ejemplo",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        },
         bottomBar = {
             PixDateBottomBar(
                 selectedSection = selectedSection,
-                onSectionSelected = { selectedSection = it }
+                onSectionSelected = { section ->
+                    if (section == BottomSection.CAMERA) {
+                        launchCamera()
+                    } else {
+                        selectedSection = section
+                    }
+                }
             )
         }
     ) { innerPadding ->
         when (selectedSection) {
             BottomSection.GALLERY -> GalleryScreen(
                 innerPadding = innerPadding,
-                photos = photos,
-                onInsertSample = {
-                    galleryViewModel.insertSamplePhoto()
-                },
+                viewMode = viewMode,
+                groupedPhotos = groupedPhotos,
+                currentYearMonth = currentYearMonth,
+                selectedDate = selectedDate,
+                onNextMonth = { galleryViewModel.nextMonth() },
+                onPrevMonth = { galleryViewModel.prevMonth() },
+                onSelectDate = { galleryViewModel.selectDate(it) },
                 onPhotoClick = { photo ->
                     galleryViewModel.loadPhotoDetail(photo)
                 }
             )
 
-            BottomSection.ADD -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Pantalla cámara",
-                    style = MaterialTheme.typography.headlineSmall
-                )
+            BottomSection.CAMERA -> {
+                // Este caso no se renderiza porque launchCamera()
+                // abre directamente la cámara externa y vuelve a GALLERY.
+                // Lo dejamos por completitud del when.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ABRIENDO CÁMARA...",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                }
             }
 
             BottomSection.FOLDERS -> Box(
@@ -119,7 +243,7 @@ fun PixDateApp() {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Pantalla carpetas",
+                    text = "CARPETAS",
                     style = MaterialTheme.typography.headlineSmall
                 )
             }
@@ -133,12 +257,12 @@ fun PixDateBottomBar(
     onSectionSelected: (BottomSection) -> Unit
 ) {
     Surface(
-        tonalElevation = 3.dp,
-        shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.primary, // Naranja
+        contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)) // Borde duro
     ) {
         Row(
             modifier = Modifier
@@ -160,10 +284,10 @@ fun PixDateBottomBar(
                 onClick = { onSectionSelected(BottomSection.GALLERY) }
             )
 
-            AddBarItem(
+            // Botón central: CÁMARA (antes era "+")
+            CameraBarItem(
                 modifier = Modifier.weight(0.2f),
-                selected = selectedSection == BottomSection.ADD,
-                onClick = { onSectionSelected(BottomSection.ADD) }
+                onClick = { onSectionSelected(BottomSection.CAMERA) }
             )
 
             BottomBarItem(
@@ -195,7 +319,6 @@ private fun BottomBarItem(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -227,43 +350,31 @@ private fun BottomBarItem(
 }
 
 @Composable
-private fun AddBarItem(
+private fun CameraBarItem(
     modifier: Modifier = Modifier,
-    selected: Boolean,
     onClick: () -> Unit
 ) {
-    val borderColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outline
-    }
-
-    val iconColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .width(52.dp)
-                .height(40.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .width(48.dp)
+                .height(48.dp)
+                .clip(CutCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface) // Fondo claro para contrastar con la barra naranja
                 .border(
-                    border = BorderStroke(1.5.dp, borderColor),
-                    shape = RoundedCornerShape(12.dp)
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
+                    shape = CutCornerShape(8.dp)
                 )
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Añadir",
-                tint = iconColor,
+                imageVector = Icons.Default.CameraAlt,
+                contentDescription = "Cámara",
+                tint = MaterialTheme.colorScheme.onSurface, // Icono oscuro
                 modifier = Modifier.size(22.dp)
             )
         }

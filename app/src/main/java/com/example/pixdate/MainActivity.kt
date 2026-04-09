@@ -10,7 +10,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            PixDateApp()
+            com.example.pixdate.ui.theme.PixDateTheme {
+                PixDateApp()
+            }
         }
     }
 }

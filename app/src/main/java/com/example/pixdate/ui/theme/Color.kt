@@ -2,10 +2,16 @@ package com.example.pixdate.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Paleta cálida y pastel (#FFBA6A) -> Alto contraste para legibilidad máxima
+val PrimaryPastel = Color(0xFFFFBA6A)
+val OnPrimaryDark = Color(0xFF4B2A00)
+val PrimaryContainerLight = Color(0xFFFFDDB3)
+val OnPrimaryContainerDark = Color(0xFF2D1600)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+val SecondaryPastel = Color(0xFFD6C0B3)
+val OnSecondaryDark = Color(0xFF3F2D17)
+
+val BackgroundWarm = Color(0xFFFFF9F0) // Fondo blanco muy suave y cálido
+val SurfaceWarm = Color(0xFFFFF9F0) // Tarjetas del mismo color que el fondo
+val OnBackgroundDark = Color(0xFF271C11) // Texto casi negro para leer bien
+val OnSurfaceDark = Color(0xFF271C11)
