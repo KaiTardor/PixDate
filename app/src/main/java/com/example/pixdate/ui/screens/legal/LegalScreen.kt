@@ -75,66 +75,69 @@ fun LegalScreen(innerPadding: PaddingValues, onClose: () -> Unit) {
 
         LegalSection(
             title = "1. RECOPILACIÓN DE DATOS",
-            body = "PixDate accede a las imágenes almacenadas en tu dispositivo con el único " +
-                    "propósito de organizarlas y clasificarlas mediante análisis local. " +
-                    "No se transmite ninguna imagen ni dato personal a servicios externos ajenos que no se hayan comentado. "
+            body = "PixDate accede a los archivos multimedia almacenadas en el dispositivo del usuario con el único " +
+                    "propósito de organizarlas y clasificarlas. " +
+                    "Salvo la tranmisión técnica estrictamente necesaria de la cláusula 4, la aplicación no compila, " +
+                    "extrae, almacena ni transmite datos de carácter personal o informacion confidencial a servidores de terceros " +
+                    "que no se hayan comentado previamente."
         )
 
         LegalSection(
-            title = "2. PERMISOS",
-            body = "La aplicación solicita los siguientes permisos para funcionar correctamente:\n" +
-                    "• Cámara: para hacer fotos e incluir nuevas imagenes a la app.\n" +
-                    "• Notificación: para notificar del estado de las fotos.\n" +
-                    "• Almacenamiento: para leer las imágenes existentes de la galería.\n\n" +
-                    "Estos permisos son esenciales para el correcto funcionamiento de la app."
+            title = "2. CONCESIÓN DE PERMISOS",
+            body = "La aplicación solicita los siguientes permisos de forma explicita para funcionar correctamente:\n" +
+                    "• Cámara: Para la captura directa e integración de material fotográfico en la plataforma.\n" +
+                    "• Notificación: Para la notificación sobre los estados de las imágenes.\n" +
+                    "• Almacenamiento:  Para la lectura, indexación y gestión de los archivos.\n\n"
         )
 
         LegalSection(
             title = "3. ALMACENAMIENTO LOCAL",
-            body = "PixDate utiliza una base de datos local (Room) para almacenar metadatos " +
-                    "de las fotos (nombre, fecha, categoría, etiquetas, etc). Las imágenes originales " +
-                    "permanecen en su ubicación original del sistema de archivos y no son " +
-                    "duplicadas ni modificadas de ninguna forma."
+            body = "PixDate utiliza una base de datos local (Room) de manera exclusiva en la memoria del dispositivo del usuario con "+
+                    "el fin de para almacenar metadatos de las fotos (nombre, fecha, categoría, etiquetas, etc). "+
+                    "Los archivos multimedia originales permanecen inalterados en el sistema de archivos del sistema operativo, "+
+                    "prohibiéndose expresamente a la aplicación la modificación, supresión o duplicación no autorizada de los mismos."
         )
 
         LegalSection(
-            title = "4. PROCESAMIENTO CON IA",
+            title = "4. PROCESAMIENTO EXTERNO MEDIANTE IA",
             body = "El análisis de imágenes se realiza mediante modelos de inteligencia artificial " +
-                    "que se ejecutan mediante una API externa. Por lo que ten precaución sobre las " +
-                    "imágenes a compartir. No nos hacemos responsables de los usos que le dé el usuario" +
-                    "Los resultados del análisis (descripción, " +
-                    "categoría, etiquetas, etc) se almacenan exclusivamente en la base de datos local."
+                    "que se ejecutan mediante una API (interfaz de programación de aplicaciones) externa. Por lo que ten precaución sobre las " +
+                    "imágenes a compartir. Ya que el usuario asume la responsabilidad total e indelegable sobre la legalidad y naturaleza " +
+                    "del contenido sometido a dicho análisis. Los datos resultantes de la inferencia se integrarán de forma exclusiva en el almacenamiento " +
+                    "local del dispositivo del usuario."
         )
 
         LegalSection(
-            title = "5. COMPARTICIÓN DE DATOS",
-            body = "PixDate NO comparte, vende ni transfiere datos personales a terceros bajo " +
-                    "ninguna circunstancia. La aplicación funciona completamente offline una " +
-                    "vez instalada."
+            title = "5. CONFIDENCIALIDAD Y CESIÓN A TERCEROS",
+            body = "Sin perjuicio de la transmisión técnica estipulada en la Cláusula 4, PixDate se compromete expresamente a no ceder,"+
+                    "comercializar, alquilar ni transferir a título gratuito u oneroso la información personal o los archivos del usuario a " +
+                    "terceras partes bajo ninguna circunstancia. El software subyacente opera primariamente en un entorno local y cerrado para el usuario."
         )
 
         LegalSection(
             title = "6. DERECHOS DEL USUARIO",
-            body = "Puedes en cualquier momento:\n" +
+            body = " El Usuario goza de plena soberanía sobre su información, reservándose en tood momento el derecho a:\n" +
                     "• Eliminar todos los datos generados por la app borrando su caché.\n" +
-                    "• Revocar los permisos concedidos desde Ajustes > Aplicaciones.\n" +
-                    "• Desinstalar la aplicación, lo que eliminará toda la base de datos local."
+                    "• Revocar el consentimiento de acceso mediante la deshabilitación de permisos del sistema\n" +
+                    "• Proceder a la desinstalación del software, acción que conllevará la destrucción irreversible de la base de datos local ."
         )
 
         LegalSection(
             title = "7. TÉRMINOS DE USO",
-            body = "Al utilizar PixDate, aceptas que:\n" +
-                    "• La aplicación se proporciona \"tal cual\" sin garantías de ningún tipo.\n" +
-                    "• El desarrollador no se responsabiliza de la pérdida de datos.\n" +
-                    "• El uso de la cámara es responsabilidad exclusiva del usuario.\n" +
-                    "• La clasificación automática es orientativa y puede contener errores."
+            body = "La utilización de PixDate implica la aceptación expresa e inequívoca de las siguientes condiciones limitativas:\n" +
+                    "• El software y sus servicios asociados se licencian bajo la premisa de \"tal cual\" (\"as is\"), declinando cualquier garantía " +
+                    "implícita o explícita de idoneidad, continuidad o infalibilidad técnica.\n" +
+                    "• El desarrollador se exime de toda responsabilidad civil, penal o administrativa derivada de la pérdida incidental, alteración o corrupción de datos.\n" +
+                    "• La generación, selección y subida de contenido es de la exclusiva responsabilidad del Usuario.\n" +
+                    "• Los resultados de categorización generados por la IA son de naturaleza estocástica, tienen carácter puramente orientativo " +
+                    "y carecen de validez vinculante, pudiendo contener errores u omisiones en el proceso."
         )
 
         LegalSection(
             title = "8. CONTACTO",
-            body = "Para consultas sobre privacidad o términos de uso, puedes contactar " +
-                    " con el equipo legal de PixDate @Adriu o al correo adri@notfake.com" +
-                    "Se responderá con la mayor brevedad posible."
+            body = "Para el ejercicio de sus derechos, la presentación de reclamaciones o cualquier consulta referente a las presentes condiciones de uso " +
+                    "y política de privacidad, el usuario podrá dirigirse al equipo responsable de PixDate mediante @Adriu o a través de la dirección de" +
+                    "correo electrónico adri_notfake@pixdate.com. Toda comunicación será procesada y respondida con la debida diligencia legal."
         )
 
         Spacer(modifier = Modifier.height(32.dp))
