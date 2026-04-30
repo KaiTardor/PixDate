@@ -8,11 +8,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,20 +21,29 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,39 +54,57 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.pixdate.data.local.database.AppDatabase
+import com.example.pixdate.data.local.entity.FolderEntity
 import com.example.pixdate.data.repository.PixDateRepository
+import com.example.pixdate.ui.screens.detail.PhotoDetailScreen
+import com.example.pixdate.ui.screens.folders.FolderDetailScreen
+import com.example.pixdate.ui.screens.folders.FoldersScreen
+import com.example.pixdate.ui.screens.folders.FoldersViewModel
+import com.example.pixdate.ui.screens.folders.FoldersViewModelFactory
 import com.example.pixdate.ui.screens.gallery.GalleryScreen
 import com.example.pixdate.ui.screens.gallery.GalleryViewMode
 import com.example.pixdate.ui.screens.gallery.GalleryViewModel
 import com.example.pixdate.ui.screens.gallery.GalleryViewModelFactory
+import com.example.pixdate.ui.screens.gallery.PhotoFilter
+import com.example.pixdate.ui.screens.legal.LegalScreen
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Secciones principales de la aplicación.
+ */
 enum class BottomSection {
     GALLERY,
     CAMERA,
-    FOLDERS
+    FOLDERS,
+    LEGAL
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PixDateApp() {
-    var selectedSection by rememberSaveable { mutableStateOf(BottomSection.GALLERY) }
+    var selectedSection by rememberSaveable {
+        mutableStateOf(BottomSection.GALLERY)
+    }
 
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val database = remember {
+        AppDatabase.getDatabase(appContext)
+    }
 
-    // Inicializar la base de datos y el repositorio una sola vez
-    val database = remember { AppDatabase.getDatabase(context) }
-
-    val repository = remember {
+    // El repositorio se memoiza con remember para evitar crear múltiples instancias
+    val repository = remember(database) {
         PixDateRepository(
             photoDao = database.photoDao(),
             photoAnalysisDao = database.photoAnalysisDao(),
@@ -90,183 +118,728 @@ fun PixDateApp() {
         factory = GalleryViewModelFactory(repository)
     )
 
+    val foldersViewModel: FoldersViewModel = viewModel(
+        factory = FoldersViewModelFactory(repository)
+    )
+
+    /*
+     * Estado local de navegación dentro de la sección de carpetas.
+     */
+    var selectedFolder by rememberSaveable {
+        mutableStateOf<Long?>(null)
+    }
+
+    var showEditFolderDialog by remember {
+        mutableStateOf(false)
+    }
+
+    /*
+     * Estados observados desde los ViewModels.
+     */
+    val foldersList by foldersViewModel.folders.collectAsStateWithLifecycle()
+
     val groupedPhotos by galleryViewModel.groupedPhotos.collectAsStateWithLifecycle()
     val viewMode by galleryViewModel.viewMode.collectAsStateWithLifecycle()
     val currentYearMonth by galleryViewModel.currentYearMonth.collectAsStateWithLifecycle()
     val selectedDate by galleryViewModel.selectedDate.collectAsStateWithLifecycle()
+    val photoFilter by galleryViewModel.photoFilter.collectAsStateWithLifecycle()
+    val selectedPhoto by galleryViewModel.selectedPhoto.collectAsStateWithLifecycle()
+    val selectedPhotoDetail by galleryViewModel.selectedPhotoDetail.collectAsStateWithLifecycle()
+    val processingState by galleryViewModel.processingState.collectAsStateWithLifecycle()
 
-    // Auto-importar CSV si la BD está vacía (simula fotos del usuario)
-    LaunchedEffect(Unit) {
-        galleryViewModel.autoImportIfEmpty(context)
+    /*
+     * Carpeta actualmente seleccionada.
+     */
+    val selectedFolderEntity = remember(foldersList, selectedFolder) {
+        foldersList.find { folder ->
+            folder.folderId == selectedFolder
+        }
     }
 
-    // Lógica de captura de cámara
+    /*
+     * Si la carpeta seleccionada ya no existe, limpiamos el estado desde un efecto.
+     */
+    LaunchedEffect(selectedFolder, selectedFolderEntity) {
+        if (selectedFolder != null && selectedFolderEntity == null) {
+            selectedFolder = null
+        }
+    }
 
-    // Estado para guardar la URI y nombre del archivo temporal
-    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingPhotoFileName by remember { mutableStateOf("") }
+    /*
+     * Importación inicial.
+     */
+    LaunchedEffect(Unit) {
+        galleryViewModel.autoImportIfEmpty(appContext)
+    }
 
-    // Launcher que abre la cámara nativa y recibe el resultado
+    /*
+     * Estado temporal de la captura con cámara.
+     * Guardamos la URI como String para que sea compatible con rememberSaveable.
+     */
+    var pendingPhotoUriString by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
+
+    var pendingPhotoFileName by rememberSaveable {
+        mutableStateOf("")
+    }
+
+    /*
+     * Launcher de cámara.
+     *
+     * ActivityResultContracts.TakePicture requiere una URI ya creada por la app.
+     * Si la cámara confirma éxito, insertamos esa foto en la base de datos.
+     */
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && pendingPhotoUri != null) {
+        val uriString = pendingPhotoUriString
+
+        if (success && uriString != null) {
             galleryViewModel.insertCapturedPhoto(
-                uri = pendingPhotoUri.toString(),
+                uri = uriString,
                 fileName = pendingPhotoFileName
             )
-            // Volver a la galería para ver la foto nueva
+
             selectedSection = BottomSection.GALLERY
+        }
+
+        /*
+         * Si el usuario cancela o la cámara falla, limpiamos el estado pendiente.
+         * Si la captura va bien, la BD pasa a ser la fuente de verdad.
+         */
+        if (!success) {
+            pendingPhotoUriString = null
+            pendingPhotoFileName = ""
         }
     }
 
     /**
-     * Crea un archivo temporal en la caché, obtiene su URI segura
-     * via FileProvider, y lanza la cámara nativa.
+     * Crea un archivo privado persistente y lanza la cámara nativa.
      */
     fun launchCamera() {
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val timestamp = SimpleDateFormat(
+            "yyyyMMdd_HHmmss",
+            Locale.getDefault()
+        ).format(Date())
+
         val fileName = "PIXDATE_$timestamp.jpg"
 
-        // Crear el directorio photos/ dentro de la caché si no existe
-        val photosDir = File(context.cacheDir, "photos")
-        if (!photosDir.exists()) photosDir.mkdirs()
+        val photosDir = File(appContext.filesDir, "photos")
+        if (!photosDir.exists()) {
+            photosDir.mkdirs()
+        }
 
         val photoFile = File(photosDir, fileName)
-        val uri = FileProvider.getUriForFile(
+
+        val uri: Uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             photoFile
         )
 
-        pendingPhotoUri = uri
+        pendingPhotoUriString = uri.toString()
         pendingPhotoFileName = fileName
+
         cameraLauncher.launch(uri)
     }
 
-    // ##########################################
-    // ── UI
-    // ##########################################
+    /*
+     * Algunas pantallas necesitan las fotos en formato plano,remember evita recalcular flatten() en cada recomposición.
+     */
+    val flatPhotos = remember(groupedPhotos) {
+        groupedPhotos.values.flatten()
+    }
 
-    Scaffold(
-        topBar = {
-            Surface(
-                color = MaterialTheme.colorScheme.primary, // Naranja pastel
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "PIXDATE",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onPrimary
+    val selectedFolderPhotos = remember(flatPhotos, selectedFolder) {
+        if (selectedFolder == null) {
+            emptyList()
+        } else {
+            flatPhotos.filter { photo ->
+                photo.folderId == selectedFolder
+            }
+        }
+    }
+
+    // Renderizado pagina legal
+    if (selectedSection == BottomSection.LEGAL) {
+        LegalScreen(
+            innerPadding = PaddingValues(0.dp),
+            onClose = {
+                selectedSection = BottomSection.GALLERY
+            }
+        )
+    } else {
+        Scaffold(
+            topBar = {
+                if (selectedPhoto == null) {
+                    PixDateTopBar(
+                        selectedSection = selectedSection,
+                        selectedFolder = selectedFolderEntity,
+                        photoFilter = photoFilter,
+                        viewMode = viewMode,
+                        onBackFromFolder = {
+                            selectedFolder = null
+                        },
+                        onEditFolder = {
+                            showEditFolderDialog = true
+                        },
+                        onOpenLegal = {
+                            selectedSection = BottomSection.LEGAL
+                        },
+                        onFilterSelected = { filter ->
+                            galleryViewModel.setFilter(filter)
+                        },
+                        onToggleViewMode = {
+                            galleryViewModel.toggleViewMode()
+                        }
                     )
+                }
+            },
+            bottomBar = {
+                PixDateBottomBar(
+                    selectedSection = selectedSection,
+                    onSectionSelected = { section ->
+                        if (section == BottomSection.CAMERA) {
+                            launchCamera()
+                        } else {
+                            /*
+                             * Al cambiar de sección, cerramos el detalle de foto.para mayor "fijacion"
+                             */
+                            galleryViewModel.clearSelectedPhoto()
 
-                    Row {
-                        IconButton(
-                            onClick = { galleryViewModel.toggleViewMode() }
-                        ) {
-                            Icon(
-                                imageVector = if (viewMode == GalleryViewMode.CALENDAR) Icons.Default.List else Icons.Default.CalendarMonth,
-                                contentDescription = "Cambiar vista",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
+                            selectedSection = section
 
-                        IconButton(
-                            onClick = { galleryViewModel.insertSamplePhoto() }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Añadir ejemplo",
-                                tint = MaterialTheme.colorScheme.onPrimary
-                            )
+                            if (section != BottomSection.FOLDERS) {
+                                selectedFolder = null
+                            }
                         }
+                    }
+                )
+            }
+        ) { innerPadding ->
+            when (selectedSection) {
+                BottomSection.GALLERY -> {
+                    val photo = selectedPhoto
+
+                    // Mostramos el detalle de foto si hay una seleccionada, o la galería si no.
+                    if (photo != null) {
+                        PhotoDetailScreen(
+                            innerPadding = innerPadding,
+                            photo = photo,
+                            detailInfo = selectedPhotoDetail,
+                            processingState = processingState,
+                            onBack = {
+                                galleryViewModel.clearSelectedPhoto()
+                            },
+                            onProcess = {
+                                galleryViewModel.processPhoto(photo, context)
+                            },
+                            onConfirmAnalysis = { analysis ->
+                                galleryViewModel.applyAnalysis(photo, analysis)
+                            },
+                            onDismissComparison = {
+                                galleryViewModel.resetProcessingState()
+                            },
+                            onSaveEdit = { desc, tags, cat ->
+                                galleryViewModel.manualUpdateAnalysis(photo, desc, tags, cat)
+                            }
+                        )
+                    } else {
+                        GalleryScreen(
+                            innerPadding = innerPadding,
+                            viewMode = viewMode,
+                            groupedPhotos = groupedPhotos,
+                            currentYearMonth = currentYearMonth,
+                            selectedDate = selectedDate,
+                            onNextMonth = {
+                                galleryViewModel.nextMonth()
+                            },
+                            onPrevMonth = {
+                                galleryViewModel.prevMonth()
+                            },
+                            onSelectDate = { date ->
+                                galleryViewModel.selectDate(date)
+                            },
+                            onPhotoClick = { clickedPhoto ->
+                                galleryViewModel.selectPhoto(clickedPhoto)
+                            },
+                            onYearMonthSelected = { yearMonth ->
+                                galleryViewModel.setYearMonth(yearMonth)
+                            }
+                        )
                     }
                 }
-            }
-        },
-        bottomBar = {
-            PixDateBottomBar(
-                selectedSection = selectedSection,
-                onSectionSelected = { section ->
-                    if (section == BottomSection.CAMERA) {
-                        launchCamera()
-                    } else {
-                        selectedSection = section
+
+                BottomSection.CAMERA -> {
+                    /*
+                     * Normalmente esta pantalla no se llega a ver porque el botón
+                     * de cámara lanza directamente una Activity externa.
+                     */
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "ABRIENDO CÁMARA...",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
                     }
+                }
+
+                BottomSection.FOLDERS -> {
+                    val photo = selectedPhoto
+
+                    if (photo != null) {
+                        PhotoDetailScreen(
+                            innerPadding = innerPadding,
+                            photo = photo,
+                            detailInfo = selectedPhotoDetail,
+                            processingState = processingState,
+                            onBack = {
+                                galleryViewModel.clearSelectedPhoto()
+                            },
+                            onProcess = {
+                                galleryViewModel.processPhoto(photo, context)
+                            },
+                            onConfirmAnalysis = { analysis ->
+                                galleryViewModel.applyAnalysis(photo, analysis)
+                            },
+                            onDismissComparison = {
+                                galleryViewModel.resetProcessingState()
+                            },
+                            onSaveEdit = { desc, tags, cat ->
+                                galleryViewModel.manualUpdateAnalysis(photo, desc, tags, cat)
+                            }
+                        )
+                    } else if (selectedFolder != null && selectedFolderEntity != null) {
+                        FolderDetailScreen(
+                            innerPadding = innerPadding,
+                            folder = selectedFolderEntity,
+                            photos = selectedFolderPhotos,
+                            onBack = {
+                                selectedFolder = null
+                            },
+                            onPhotoClick = { clickedPhoto ->
+                                galleryViewModel.selectPhoto(clickedPhoto)
+                            }
+                        )
+                    } else {
+                        FoldersScreen(
+                            innerPadding = innerPadding,
+                            folders = foldersList,
+                            flatPhotos = flatPhotos,
+                            onCreateFolder = { name ->
+                                foldersViewModel.createFolder(name)
+                            },
+                            onFolderClick = { folder ->
+                                selectedFolder = folder.folderId
+                            }
+                        )
+                    }
+                }
+
+                BottomSection.LEGAL -> {
+                // se renderiza fuera :)
+                }
+            }
+        }
+
+        // El diálogo de edición de carpeta se muestra por encima del Scaffold para evitar problemas de navegación interna.
+        if (showEditFolderDialog && selectedFolderEntity != null) {
+            EditFolderDialog(
+                folder = selectedFolderEntity,
+                onDismiss = {
+                    showEditFolderDialog = false
+                },
+                onRename = { newName ->
+                    foldersViewModel.renameFolder(selectedFolderEntity, newName)
+                    showEditFolderDialog = false
+                },
+                onDelete = {
+                    foldersViewModel.deleteFolder(selectedFolderEntity)
+                    selectedFolder = null
+                    showEditFolderDialog = false
                 }
             )
         }
-    ) { innerPadding ->
-        when (selectedSection) {
-            BottomSection.GALLERY -> GalleryScreen(
-                innerPadding = innerPadding,
-                viewMode = viewMode,
-                groupedPhotos = groupedPhotos,
-                currentYearMonth = currentYearMonth,
-                selectedDate = selectedDate,
-                onNextMonth = { galleryViewModel.nextMonth() },
-                onPrevMonth = { galleryViewModel.prevMonth() },
-                onSelectDate = { galleryViewModel.selectDate(it) },
-                onPhotoClick = { photo ->
-                    galleryViewModel.loadPhotoDetail(photo)
-                }
-            )
+    }
+}
 
-            BottomSection.CAMERA -> {
-                // Este caso no se renderiza porque launchCamera()
-                // abre directamente la cámara externa y vuelve a GALLERY.
-                // Lo dejamos por completitud del when.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
-                ) {
+/**
+ * Barra superior de la aplicación.
+ *
+ * Su contenido cambia según el contexto:
+ * - Carpeta abierta: botón atrás, nombre de carpeta y editar.
+ * - Lista de carpetas: título "CARPETAS".
+ * - Galería: título, legal, filtros y cambio de vista.
+ */
+@Composable
+private fun PixDateTopBar(
+    selectedSection: BottomSection,
+    selectedFolder: FolderEntity?,
+    photoFilter: PhotoFilter,
+    viewMode: GalleryViewMode,
+    onBackFromFolder: () -> Unit,
+    onEditFolder: () -> Unit,
+    onOpenLegal: () -> Unit,
+    onFilterSelected: (PhotoFilter) -> Unit,
+    onToggleViewMode: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            when {
+                selectedSection == BottomSection.FOLDERS && selectedFolder != null -> {
+                    FolderDetailTopBarContent(
+                        folder = selectedFolder,
+                        onBack = onBackFromFolder,
+                        onEditFolder = onEditFolder
+                    )
+                }
+
+                selectedSection == BottomSection.FOLDERS -> {
                     Text(
-                        text = "ABRIENDO CÁMARA...",
-                        style = MaterialTheme.typography.headlineSmall
+                        text = "CARPETAS",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                else -> {
+                    GalleryTopBarContent(
+                        photoFilter = photoFilter,
+                        viewMode = viewMode,
+                        onOpenLegal = onOpenLegal,
+                        onFilterSelected = onFilterSelected,
+                        onToggleViewMode = onToggleViewMode
                     )
                 }
             }
+        }
+    }
+}
 
-            BottomSection.FOLDERS -> Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "CARPETAS",
-                    style = MaterialTheme.typography.headlineSmall
+/**
+ * Contenido de la top bar cuando el usuario está dentro de una carpeta.
+ */
+@Composable
+private fun RowScope.FolderDetailTopBarContent(
+    folder: FolderEntity,
+    onBack: () -> Unit,
+    onEditFolder: () -> Unit
+) {
+    IconButton(onClick = onBack) {
+        Icon(
+            imageVector = Icons.Default.ArrowBack,
+            contentDescription = "Atrás",
+            tint = MaterialTheme.colorScheme.onPrimary
+        )
+    }
+
+    Text(
+        text = folder.name.uppercase(),
+        style = MaterialTheme.typography.headlineSmall,
+        color = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier
+            .weight(1f)
+            .padding(horizontal = 8.dp)
+    )
+
+    IconButton(onClick = onEditFolder) {
+        Icon(
+            imageVector = Icons.Default.Edit,
+            contentDescription = "Editar carpeta",
+            tint = MaterialTheme.colorScheme.onPrimary
+        )
+    }
+}
+
+/**
+ * Contenido de la top bar para la galería principal.
+ */
+@Composable
+private fun GalleryTopBarContent(
+    photoFilter: PhotoFilter,
+    viewMode: GalleryViewMode,
+    onOpenLegal: () -> Unit,
+    onFilterSelected: (PhotoFilter) -> Unit,
+    onToggleViewMode: () -> Unit
+) {
+    Text(
+        text = "PIXDATE",
+        style = MaterialTheme.typography.headlineSmall,
+        color = MaterialTheme.colorScheme.onPrimary
+    )
+
+    Row {
+        IconButton(onClick = onOpenLegal) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = "Info y legal",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+
+        PhotoFilterMenu(
+            currentFilter = photoFilter,
+            onFilterSelected = onFilterSelected
+        )
+
+        IconButton(onClick = onToggleViewMode) {
+            Icon(
+                imageVector = if (viewMode == GalleryViewMode.CALENDAR) {
+                    Icons.Default.List
+                } else {
+                    Icons.Default.CalendarMonth
+                },
+                contentDescription = "Cambiar vista",
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+    }
+}
+
+/**
+ * Menú desplegable de filtros de la galería.
+ */
+@Composable
+private fun PhotoFilterMenu(
+    currentFilter: PhotoFilter,
+    onFilterSelected: (PhotoFilter) -> Unit
+) {
+    var showFilterMenu by remember {
+        mutableStateOf(false)
+    }
+
+    val filterOptions = listOf(
+        PhotoFilter.ALL to "Todas",
+        PhotoFilter.PROCESSED to "Procesadas",
+        PhotoFilter.UNPROCESSED to "Sin procesar"
+    )
+
+    Box {
+        IconButton(
+            onClick = {
+                showFilterMenu = true
+            }
+        ) {
+            Icon(
+                imageVector = Icons.Default.FilterList,
+                contentDescription = "Abrir filtros",
+                tint = if (currentFilter == PhotoFilter.ALL) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)
+                }
+            )
+        }
+
+        DropdownMenu(
+            expanded = showFilterMenu,
+            onDismissRequest = {
+                showFilterMenu = false
+            },
+            modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+        ) {
+            filterOptions.forEach { (filter, label) ->
+                val selected = currentFilter == filter
+
+                DropdownMenuItem(
+                    modifier = Modifier.background(
+                        if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    ),
+                    text = {
+                        Text(
+                            text = label,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                    },
+                    onClick = {
+                        onFilterSelected(filter)
+                        showFilterMenu = false
+                    }
                 )
             }
         }
     }
 }
 
+/**
+ * Diálogo para renombrar o eliminar una carpeta.
+ *
+ * Validaciones aplicadas:
+ * - No permite guardar nombres vacíos.
+ * - No permite guardar si el nombre no ha cambiado.
+ */
 @Composable
-// Barra inferior personalizada con 3 secciones: GALERÍA, CÁMARA y CARPETAS
+fun EditFolderDialog(
+    folder: FolderEntity,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit
+) {
+    var newName by remember(folder.folderId) {
+        mutableStateOf(folder.name)
+    }
+
+    var showDeleteConfirm by remember {
+        mutableStateOf(false)
+    }
+
+    val trimmedName = newName.trim()
+    val canSave = trimmedName.isNotEmpty() && trimmedName != folder.name
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteConfirm = false
+            },
+            shape = androidx.compose.ui.graphics.RectangleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurface,
+            title = {
+                Text(
+                    text = "ELIMINAR CARPETA",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Estás seguro de eliminar la carpeta '${folder.name}'? PD: Las fotos no se borrarán."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onDelete) {
+                    Text(
+                        text = "ELIMINAR",
+                        color = Color.Red
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                    }
+                ) {
+                    Text("CANCELAR")
+                }
+            }
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            shape = androidx.compose.ui.graphics.RectangleShape,
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            textContentColor = MaterialTheme.colorScheme.onSurface,
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "EDITAR CARPETA",
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cerrar"
+                        )
+                    }
+                }
+            },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { value ->
+                            newName = value
+                        },
+                        label = {
+                            Text("Nombre de la carpeta")
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirm = true
+                        }
+                    ) {
+                        Text(
+                            text = "ELIMINAR",
+                            color = Color.Red
+                        )
+                    }
+
+                    TextButton(
+                        enabled = canSave,
+                        onClick = {
+                            onRename(trimmedName)
+                        }
+                    ) {
+                        Text("GUARDAR")
+                    }
+                }
+            },
+            dismissButton = null
+        )
+    }
+}
+
+/**
+ * Barra inferior principal.
+ *
+ * Contiene dos destinos reales —Galería y Carpetas— y una acción central
+ * para abrir la cámara.
+ */
+@Composable
 fun PixDateBottomBar(
     selectedSection: BottomSection,
     onSectionSelected: (BottomSection) -> Unit
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.primary, // Naranja
+        color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)) // Borde duro
+            .border(BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface))
     ) {
         Row(
             modifier = Modifier
@@ -285,13 +858,16 @@ fun PixDateBottomBar(
                     )
                 },
                 text = "Galería",
-                onClick = { onSectionSelected(BottomSection.GALLERY) }
+                onClick = {
+                    onSectionSelected(BottomSection.GALLERY)
+                }
             )
 
-            // Botón central: CÁMARA
             CameraBarItem(
                 modifier = Modifier.weight(0.2f),
-                onClick = { onSectionSelected(BottomSection.CAMERA) }
+                onClick = {
+                    onSectionSelected(BottomSection.CAMERA)
+                }
             )
 
             BottomBarItem(
@@ -304,14 +880,21 @@ fun PixDateBottomBar(
                     )
                 },
                 text = "Carpetas",
-                onClick = { onSectionSelected(BottomSection.FOLDERS) }
+                onClick = {
+                    onSectionSelected(BottomSection.FOLDERS)
+                }
             )
         }
     }
 }
 
+/**
+ * Item lateral de la barra inferior.
+ *
+ * El icono mantiene tamaño constante; el estado seleccionado se comunica
+ * mostrando también el texto.
+ */
 @Composable
-// Item individual para GALERÍA y CARPETAS en la barra inferior
 private fun BottomBarItem(
     modifier: Modifier = Modifier,
     selected: Boolean,
@@ -319,7 +902,9 @@ private fun BottomBarItem(
     text: String,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
+    val interactionSource = remember {
+        MutableInteractionSource()
+    }
 
     Box(
         modifier = modifier
@@ -327,6 +912,7 @@ private fun BottomBarItem(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
+                role = Role.Tab,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
@@ -337,7 +923,7 @@ private fun BottomBarItem(
             verticalArrangement = Arrangement.Center
         ) {
             Box(
-                modifier = Modifier.size(if (selected) 18.dp else 22.dp),
+                modifier = Modifier.size(22.dp),
                 contentAlignment = Alignment.Center
             ) {
                 icon()
@@ -354,8 +940,10 @@ private fun BottomBarItem(
     }
 }
 
+/**
+ * Botón central de cámara.
+ */
 @Composable
-// Item central personalizado para el botón de CÁMARA
 private fun CameraBarItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
@@ -369,18 +957,21 @@ private fun CameraBarItem(
                 .width(48.dp)
                 .height(48.dp)
                 .clip(CutCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surface) // Fondo claro para contrastar con la barra naranja
+                .background(MaterialTheme.colorScheme.surface)
                 .border(
                     border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
                     shape = CutCornerShape(8.dp)
                 )
-                .clickable(onClick = onClick),
+                .clickable(
+                    role = Role.Button,
+                    onClick = onClick
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.CameraAlt,
                 contentDescription = "Cámara",
-                tint = MaterialTheme.colorScheme.onSurface, // Icono oscuro
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(22.dp)
             )
         }

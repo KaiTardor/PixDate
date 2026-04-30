@@ -20,4 +20,13 @@ interface FolderDao {
 
     @Query("SELECT * FROM folders WHERE folderId = :folderId LIMIT 1")
     suspend fun getFolderById(folderId: Long): FolderEntity?
+
+    @Query("SELECT * FROM folders ORDER BY name ASC")
+    fun getAllFoldersFlow(): kotlinx.coroutines.flow.Flow<List<FolderEntity>>
+
+    @androidx.room.Update
+    suspend fun updateFolder(folder: FolderEntity)
+
+    @androidx.room.Delete
+    suspend fun deleteFolder(folder: FolderEntity)
 }

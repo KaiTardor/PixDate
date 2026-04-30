@@ -60,8 +60,8 @@ class PixDateRepository(
         return photoDao.getPhotosByProcessedStatusFlow(true)
     }
 
-    fun getPhotosByFolderFlow(folderId: Long): Flow<List<PhotoEntity>> {
-        return photoDao.getPhotosByFolderFlow(folderId)
+    fun getAllFoldersFlow(): Flow<List<FolderEntity>> {
+        return folderDao.getAllFoldersFlow()
     }
 
     // ── Actualizaciones ──────────────────────────────────────────
@@ -72,6 +72,27 @@ class PixDateRepository(
             isProcessed = isProcessed,
             updatedAt = System.currentTimeMillis()
         )
+    }
+
+    suspend fun updateProcessedStatusAndFolder(
+        photoId: Long,
+        isProcessed: Boolean,
+        folderId: Long?
+    ) {
+        photoDao.updateProcessedStatusAndFolder(
+            photoId = photoId,
+            isProcessed = isProcessed,
+            folderId = folderId,
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun updateFolder(folder: FolderEntity) {
+        folderDao.updateFolder(folder)
+    }
+
+    suspend fun deleteFolder(folder: FolderEntity) {
+        folderDao.deleteFolder(folder)
     }
 
     // ── Consultas auxiliares ──────────────────────────────────────

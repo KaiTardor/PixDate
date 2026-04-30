@@ -27,4 +27,18 @@ interface PhotoDao {
 
     @Query("SELECT COUNT(*) FROM photos")
     suspend fun getPhotoCount(): Int
+
+    @Query("""
+    UPDATE photos
+    SET isProcessed = :isProcessed,
+        folderId = :folderId,
+        updatedAt = :updatedAt
+    WHERE photoId = :photoId
+""")
+    suspend fun updateProcessedStatusAndFolder(
+        photoId: Long,
+        isProcessed: Boolean,
+        folderId: Long?,
+        updatedAt: Long
+    )
 }
