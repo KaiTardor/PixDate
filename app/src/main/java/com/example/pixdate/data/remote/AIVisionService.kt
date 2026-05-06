@@ -107,21 +107,28 @@ class AIVisionService {
         }
         """.trimIndent()
 
-        val requestBody = jsonBody.toRequestBody("application/json".toMediaType())
-        val request = Request.Builder().url(url).post(requestBody).build()
+        Log.d(TAG, "Enviando petición a Gemini... (Modelo: $MODEL)")
+        
+        val request = Request.Builder()
+            .url(url)
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
 
         return try {
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: ""
+            client.newCall(request).execute().use { response ->
+                Log.d(TAG, "Respuesta recibida de la red. Código: ${response.code}")
+                
+                val body = response.body?.string() ?: ""
 
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Error Gemini HTTP ${response.code}: $body")
-                return Result.failure(Exception("Error de Gemini HTTP ${response.code}"))
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Error Gemini HTTP ${response.code}: $body")
+                    return Result.failure(Exception("Error de Gemini HTTP ${response.code}"))
+                }
+
+                val analysis = parseGeminiResponse(body)
+                Log.d(TAG, "Análisis completado: category=${analysis.category}, tags=${analysis.tags}")
+                Result.success(analysis)
             }
-
-            val analysis = parseGeminiResponse(body)
-            Log.d(TAG, "Análisis completado: category=${analysis.category}, tags=${analysis.tags}")
-            Result.success(analysis)
         } catch (e: Exception) {
             Log.e(TAG, "Error de red o parseo: ${e.message}", e)
             Result.failure(e)

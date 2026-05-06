@@ -9,9 +9,8 @@ un orden temporal, acompañada de múltiples funcionalidades como  gestión y cl
 
 ## Funcionalidades principales
 - Visualización de fotos mediante calendario:
-    La aplicación permitirá visualizar las fotografías organizadas dentro de un calendario interactivo. 
-    En cada día se mostrará las imágenes asociadas a esa fecha, facilitando la navegación entre recuerdos de forma más visual 
-    e intuitiva.
+  La aplicación permitirá visualizar las fotografías organizadas dentro de un calendario interactivo. 
+  En cada día se mostrará las imágenes asociadas a esa fecha, facilitando la navegación entre recuerdos de forma más visual e intuitiva.
 
 - Generación automática de descripciones: 
   La aplicación mandará peticiones a modelos de inteligencia artificial disponibles en plataformas como Hugging Face para 
