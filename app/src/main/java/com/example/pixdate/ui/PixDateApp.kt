@@ -204,14 +204,10 @@ fun PixDateApp() {
             selectedSection = BottomSection.GALLERY
         }
 
-        /*
-         * Si el usuario cancela o la cámara falla, limpiamos el estado pendiente.
-         * Si la captura va bien, la BD pasa a ser la fuente de verdad.
-         */
-        if (!success) {
-            pendingPhotoUriString = null
-            pendingPhotoFileName = ""
-        }
+        // Limpiamos el estado pendiente siempre, tanto en éxito como en fallo
+        // para evitar mantener estados huérfanos que se restauren por error.
+        pendingPhotoUriString = null
+        pendingPhotoFileName = ""
     }
 
     /**
@@ -245,7 +241,7 @@ fun PixDateApp() {
     }
 
     /*
-     * Algunas pantallas necesitan las fotos en formato plano,remember evita recalcular flatten() en cada recomposición.
+     * Algunas pantallas necesitan las fotos en formato plano, remember evita recalcular flatten() en cada recomposición.
      */
     val flatPhotos = remember(groupedPhotos) {
         groupedPhotos.values.flatten()
@@ -461,6 +457,7 @@ fun PixDateApp() {
                 onDelete = {
                     foldersViewModel.deleteFolder(selectedFolderEntity)
                     selectedFolder = null
+                    galleryViewModel.clearSelectedPhoto()
                     showEditFolderDialog = false
                 }
             )

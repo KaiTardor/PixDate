@@ -16,11 +16,6 @@ interface PhotoDao {
     @Query("SELECT * FROM photos ORDER BY dateTaken DESC")
     fun getAllPhotosFlow(): Flow<List<PhotoEntity>>
 
-    @Query("SELECT * FROM photos WHERE isProcessed = :isProcessed ORDER BY dateTaken DESC")
-    fun getPhotosByProcessedStatusFlow(isProcessed: Boolean): Flow<List<PhotoEntity>>
-
-    @Query("SELECT * FROM photos WHERE folderId = :folderId ORDER BY dateTaken DESC")
-    fun getPhotosByFolderFlow(folderId: Long): Flow<List<PhotoEntity>>
 
     @Query("UPDATE photos SET isProcessed = :isProcessed, updatedAt = :updatedAt WHERE photoId = :photoId")
     suspend fun updateProcessedStatus(photoId: Long, isProcessed: Boolean, updatedAt: Long)

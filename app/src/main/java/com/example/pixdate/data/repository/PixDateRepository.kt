@@ -48,6 +48,11 @@ class PixDateRepository(
         photoTagCrossRefDao.insertPhotoTagCrossRef(crossRef)
     }
 
+    /** Borra todas las relaciones foto-tag de una foto antes de re-insertar tags nuevos. */
+    suspend fun deleteTagsForPhoto(photoId: Long) {
+        photoTagCrossRefDao.deleteTagsForPhoto(photoId)
+    }
+
     // ── Lectura completa (Flow) ──────────────────────────────────
 
     fun getAllPhotosFlow(): Flow<List<PhotoEntity>> {
@@ -55,10 +60,6 @@ class PixDateRepository(
     }
 
     // ── Lectura con filtro (Flow) ────────────────────────────────
-
-    fun getProcessedPhotosFlow(): Flow<List<PhotoEntity>> {
-        return photoDao.getPhotosByProcessedStatusFlow(true)
-    }
 
     fun getAllFoldersFlow(): Flow<List<FolderEntity>> {
         return folderDao.getAllFoldersFlow()
@@ -99,10 +100,6 @@ class PixDateRepository(
 
     suspend fun getAllFolders(): List<FolderEntity> {
         return folderDao.getAllFolders()
-    }
-
-    suspend fun getAllTags(): List<TagEntity> {
-        return tagDao.getAllTags()
     }
 
     suspend fun getAnalysisByPhotoId(photoId: Long): PhotoAnalysisEntity? {

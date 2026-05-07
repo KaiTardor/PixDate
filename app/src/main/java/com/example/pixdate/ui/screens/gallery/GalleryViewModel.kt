@@ -1,6 +1,8 @@
 package com.example.pixdate.ui.screens.gallery
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -16,6 +18,7 @@ import com.example.pixdate.data.remote.AIVisionService
 import com.example.pixdate.data.repository.PixDateRepository
 import com.example.pixdate.ui.screens.detail.ProcessingState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -67,7 +71,7 @@ class GalleryViewModel(
         private const val AI_FOLDER_DESCRIPTION = "Carpeta auto-generada por IA"
         private const val AI_TAG_SOURCE = "AI"
 
-        private const val AI_MODEL_USED = "gemini flask?"
+        private const val AI_MODEL_USED = "gemini-2.5-flash"
     }
 
     // -------------------------------------------------------------------------
@@ -76,28 +80,6 @@ class GalleryViewModel(
 
     private val _photoFilter = MutableStateFlow(PhotoFilter.ALL)
     val photoFilter: StateFlow<PhotoFilter> = _photoFilter.asStateFlow()
-
-    private val _folderFilter = MutableStateFlow<Long?>(null)
-
-    /**
-     * Filtra la galería por carpeta.
-     *
-     * null significa "sin filtro de carpeta".
-     */
-    fun setFolderFilter(folderId: Long?) {
-        _folderFilter.value = folderId
-    }
-
-    /**
-     * Cicla entre todos los filtros disponibles.
-     */
-    fun cycleFilter() {
-        _photoFilter.value = when (_photoFilter.value) {
-            PhotoFilter.ALL -> PhotoFilter.PROCESSED
-            PhotoFilter.PROCESSED -> PhotoFilter.UNPROCESSED
-            PhotoFilter.UNPROCESSED -> PhotoFilter.ALL
-        }
-    }
 
     fun setFilter(filter: PhotoFilter) {
         _photoFilter.value = filter
@@ -111,23 +93,17 @@ class GalleryViewModel(
      * Estado principal de fotos para la galería.
      */
     val groupedPhotos: StateFlow<Map<LocalDate, List<PhotoEntity>>> =
-        combine(
-            repository.getAllPhotosFlow(),
-            _photoFilter,
-            _folderFilter
-        ) { photos, filter, folderId ->
-            photos
-                .filterByProcessingState(filter)
-                .filterByFolder(folderId)
-                .groupBy { photo ->
-                    photo.dateTaken.toLocalDate()
-                }
-                .toSortedMap(compareByDescending { date -> date })
-        }.stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyMap()
-        )
+        repository.getAllPhotosFlow()
+            .combine(_photoFilter) { photos, filter ->
+                photos
+                    .filterByProcessingState(filter)
+                    .groupBy { photo -> photo.dateTaken.toLocalDate() }
+                    .toSortedMap(compareByDescending { date -> date })
+            }.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = emptyMap()
+            )
 
     // -------------------------------------------------------------------------
     // Estado de vista/calendario
@@ -182,6 +158,9 @@ class GalleryViewModel(
     private val _processingState = MutableStateFlow<ProcessingState>(ProcessingState.Idle)
     val processingState: StateFlow<ProcessingState> = _processingState.asStateFlow()
 
+    /** Job de la petición IA activa, para poder cancelarla si el usuario sale de la pantalla. */
+    private var processingJob: Job? = null
+
     private val aiService = AIVisionService()
 
     /**
@@ -197,8 +176,11 @@ class GalleryViewModel(
 
     /**
      * Limpia selección y estados asociados.
+     * Cancela la petición de IA en curso si la hubiera.
      */
     fun clearSelectedPhoto() {
+        processingJob?.cancel()
+        processingJob = null
         _selectedPhoto.value = null
         _selectedPhotoDetail.value = null
         _processingState.value = ProcessingState.Idle
@@ -220,9 +202,6 @@ class GalleryViewModel(
 
     /**
      * Carga análisis, carpeta y tags de una foto.
-     *
-     * Si el usuario selecciona otra foto antes de que termine la consulta,
-     * no sobrescribimos el detalle con datos obsoletos.
      */
     fun loadPhotoDetail(photo: PhotoEntity) {
         viewModelScope.launch {
@@ -256,10 +235,6 @@ class GalleryViewModel(
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Procesamiento IA
-    // -------------------------------------------------------------------------
-
     /**
      * Procesa una foto con IA y persiste el resultado.
      *
@@ -273,12 +248,13 @@ class GalleryViewModel(
      * 7. Refresca la UI de detalle.
      */
     fun processPhoto(photo: PhotoEntity, context: Context) {
-        viewModelScope.launch {
+        // Cancelamos cualquier procesamiento previo antes de iniciar uno nuevo
+        processingJob?.cancel()
+        processingJob = viewModelScope.launch {
             _processingState.value = ProcessingState.Loading
 
             try {
                 val appContext = context.applicationContext
-                val now = System.currentTimeMillis()
 
                 val imageBytes = readImageBytes(
                     context = appContext,
@@ -287,12 +263,19 @@ class GalleryViewModel(
 
                 Log.d(TAG_AI, "Imagen leída: ${imageBytes.size} bytes")
 
+                // Comprimimos antes de codificar en Base64 para reducir el payload
+                val compressedBytes = compressImageForAI(imageBytes)
+                Log.d(TAG_AI, "Imagen comprimida: ${compressedBytes.size} bytes (${compressedBytes.size * 100 / imageBytes.size}% del original)")
+
                 val existingFolders = withContext(Dispatchers.IO) {
                     repository.getAllFolders().map { it.name }
                 }
 
+                // Pasamos el MIME type real de la foto en lugar de asumir siempre JPEG
+                val mimeType = photo.mimeType ?: "image/jpeg"
+
                 val analysis = withContext(Dispatchers.IO) {
-                    aiService.analyze(imageBytes, existingFolders).getOrThrow()
+                    aiService.analyze(compressedBytes, existingFolders, mimeType).getOrThrow()
                 }
 
                 Log.d(
@@ -310,9 +293,12 @@ class GalleryViewModel(
                     )
                     _processingState.value = ProcessingState.Comparison(oldAnalysis, analysis)
                 } else {
-                    // Si es nueva, guardamos directamente
                     applyAnalysis(photo, analysis)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // El usuario salió de la pantalla; reseteamos estado y relanzamos
+                _processingState.value = ProcessingState.Idle
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG_AI, "Error procesando ${photo.displayName}: ${e.message}", e)
                 _processingState.value = ProcessingState.Error(
@@ -326,7 +312,8 @@ class GalleryViewModel(
      * Aplica un análisis de IA (nuevo o sobreescrito) a la base de datos.
      */
     fun applyAnalysis(photo: PhotoEntity, analysis: AIVisionService.ImageAnalysis) {
-        viewModelScope.launch {
+        processingJob?.cancel()
+        processingJob = viewModelScope.launch {
             _processingState.value = ProcessingState.Loading
             try {
                 val now = System.currentTimeMillis()
@@ -379,10 +366,6 @@ class GalleryViewModel(
         applyAnalysis(photo, analysis)
     }
 
-    // -------------------------------------------------------------------------
-    // Importación inicial desde CSV
-    // -------------------------------------------------------------------------
-
     /**
      * Importa las fotos de ejemplo desde assets si la base de datos está vacía.
      *
@@ -423,10 +406,6 @@ class GalleryViewModel(
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Fotos capturadas con cámara
-    // -------------------------------------------------------------------------
-
     /**
      * Inserta una foto recién capturada con la cámara.
      * Se guarda como no procesada y se asocia a la carpeta CÁMARA.
@@ -460,22 +439,6 @@ class GalleryViewModel(
         }
     }
 
-    /**
-     * Marca una foto como no procesada.
-     *
-     * Nota: este método no borra análisis, tags ni carpeta. Solo cambia el flag.
-     */
-    fun markAsNotProcessed(photoId: Long) {
-        viewModelScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    repository.updateProcessedStatus(photoId, false)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG_DB, "Error marcando foto como no procesada: ${e.message}", e)
-            }
-        }
-    }
 
     // -------------------------------------------------------------------------
     // Helpers privados
@@ -488,16 +451,6 @@ class GalleryViewModel(
             PhotoFilter.ALL -> this
             PhotoFilter.PROCESSED -> filter { photo -> photo.isProcessed }
             PhotoFilter.UNPROCESSED -> filter { photo -> !photo.isProcessed }
-        }
-    }
-
-    private fun List<PhotoEntity>.filterByFolder(
-        folderId: Long?
-    ): List<PhotoEntity> {
-        return if (folderId == null) {
-            this
-        } else {
-            filter { photo -> photo.folderId == folderId }
         }
     }
 
@@ -528,6 +481,80 @@ class GalleryViewModel(
         }
     }
 
+    /**
+     * Escala la imagen al máximo [maxSizePx] en su lado más largo y la recomprime
+     * como JPEG al [quality]% indicado.
+     *
+     * Si los bytes no son decodificables como Bitmap (formato desconocido),
+     * se devuelven sin modificar.
+     */
+    private suspend fun compressImageForAI(
+        bytes: ByteArray,
+        maxSizePx: Int = 1024,
+        quality: Int = 80
+    ): ByteArray = withContext(Dispatchers.Default) {
+        // Pasada 1: leer dimensiones sin decodificar píxeles (coste ~0 de RAM)
+        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+
+        if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) {
+            return@withContext bytes  // formato no soportado
+        }
+
+        // Pasada 2: decodificar con inSampleSize para reducir RAM desde el origen
+        val sampleSize = calculateInSampleSize(boundsOptions.outWidth, boundsOptions.outHeight, maxSizePx)
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val sampled = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+            ?: return@withContext bytes
+
+        // Pasada 3: ajuste fino si la imagen, tras el muestreo, sigue siendo mayor que maxSizePx
+        val ratio = minOf(
+            maxSizePx.toFloat() / sampled.width,
+            maxSizePx.toFloat() / sampled.height,
+            1f
+        )
+        val scaled = if (ratio < 1f) {
+            Bitmap.createScaledBitmap(
+                sampled,
+                (sampled.width * ratio).toInt(),
+                (sampled.height * ratio).toInt(),
+                true
+            )
+        } else {
+            sampled
+        }
+
+        ByteArrayOutputStream().use { out ->
+            scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            // Liberamos la memoria nativa de los bitmaps explícitamente en lugar
+            // de esperar al GC, ya que el byte array resultante es lo único que necesitamos.
+            if (scaled !== sampled) scaled.recycle()
+            sampled.recycle()
+            out.toByteArray()
+        }
+    }
+
+    /**
+     * Calcula el [inSampleSize] óptimo para decodificar una imagen directamente
+     * a una resolución inferior o igual a [maxPx] en su dimensión más larga.
+     *
+     * inSampleSize debe ser potencia de 2 para que BitmapFactory lo aplique eficientemente.
+     */
+    private fun calculateInSampleSize(width: Int, height: Int, maxPx: Int): Int {
+        var sampleSize = 1
+        val maxDimension = maxOf(width, height)
+        while (maxDimension / (sampleSize * 2) > maxPx) {
+            sampleSize *= 2
+        }
+        return sampleSize
+    }
+
+    /**
+     * Guarda el análisis de IA en la base de datos, asociado a la foto.
+     */
     private suspend fun saveAnalysis(
         photo: PhotoEntity,
         description: String,
@@ -547,10 +574,17 @@ class GalleryViewModel(
         )
     }
 
+    /**
+     * Guarda los tags asociados a una foto, creando los tags si no existen y estableciendo la relación.
+     */
     private suspend fun saveTags(
         photoId: Long,
         tags: List<String>
     ) {
+        // Borramos primero los tags anteriores para evitar que se acumulen
+        // cuando una foto se re-analiza con resultados diferentes.
+        repository.deleteTagsForPhoto(photoId)
+
         tags.forEach { rawTagName ->
             val tagName = rawTagName.trim()
 
@@ -574,6 +608,9 @@ class GalleryViewModel(
         }
     }
 
+    /**
+     * Obtiene el folderId de la carpeta de categoría generada por IA, creando la carpeta si no existe.
+     */
     private suspend fun getOrCreateAiFolder(
         category: String,
         now: Long
@@ -594,6 +631,9 @@ class GalleryViewModel(
         )
     }
 
+    /**
+     * Obtiene el folderId de la carpeta CÁMARA, creando la carpeta si no existe.
+     */
     private suspend fun getOrCreateCameraFolder(
         now: Long
     ): Long {
@@ -609,6 +649,9 @@ class GalleryViewModel(
         )
     }
 
+    /**
+     * Loguea en detalle la información de una foto, incluyendo su análisis, carpeta y tags.
+     */
     private fun logPhotoDetail(detail: PhotoDetailInfo) {
         Log.d(TAG_DB_UI, "═══════════════════════════════════════════════")
         Log.d(TAG_DB_UI, "FOTO: ${detail.photo}")
@@ -619,6 +662,9 @@ class GalleryViewModel(
     }
 }
 
+/**
+ * Factory para crear el GalleryViewModel con su dependencia de repositorio.
+ */
 class GalleryViewModelFactory(
     private val repository: PixDateRepository
 ) : ViewModelProvider.Factory {

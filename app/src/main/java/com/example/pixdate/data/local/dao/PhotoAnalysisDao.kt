@@ -12,12 +12,6 @@ interface PhotoAnalysisDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAnalysis(analysis: PhotoAnalysisEntity): Long
 
-    @Query("SELECT * FROM photo_analysis")
-    suspend fun getAllAnalysis(): List<PhotoAnalysisEntity>
-
     @Query("SELECT * FROM photo_analysis WHERE photoId = :photoId LIMIT 1")
     suspend fun getAnalysisByPhotoId(photoId: Long): PhotoAnalysisEntity?
-
-    @Query("SELECT * FROM photo_analysis WHERE mainCategory = :category")
-    suspend fun getAnalysisByCategory(category: String): List<PhotoAnalysisEntity>
 }

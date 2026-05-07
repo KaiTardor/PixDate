@@ -12,9 +12,6 @@ interface TagDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTag(tag: TagEntity): Long
 
-    @Query("SELECT * FROM tags ORDER BY name ASC")
-    suspend fun getAllTags(): List<TagEntity>
-
     @Query("SELECT * FROM tags WHERE name = :tagName LIMIT 1")
     suspend fun getTagByName(tagName: String): TagEntity?
 

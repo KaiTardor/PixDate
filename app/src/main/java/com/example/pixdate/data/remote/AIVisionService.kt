@@ -39,20 +39,28 @@ class AIVisionService {
      *
      * @param imageBytes Bytes de la imagen.
      * @param existingFolders Lista de nombres de carpetas que ya existen en la app.
+     * @param mimeType MIME type real de la imagen.
      */
-    fun analyze(imageBytes: ByteArray, existingFolders: List<String>): Result<ImageAnalysis> {
+    fun analyze(
+        imageBytes: ByteArray,
+        existingFolders: List<String>,
+        mimeType: String? = null
+    ): Result<ImageAnalysis> {
         val token = BuildConfig.GEMINI_API_KEY
-        if (token.isBlank() || token == "TU_TOKEN_AQUI" || token.startsWith("hf_")) {
+        if (token.isBlank()) {
             return Result.failure(
                 Exception(
-                    "Consigue tu API Key gratuita de Gemini en: " +
-                    "https://aistudio.google.com/app/apikey y ponla en local.properties como GEMINI_API_KEY=tu_key"
+                    "Consigue tu API Key de Gemini en https://aistudio.google.com/app/apikey"
                 )
             )
         }
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent?key=$token"
         val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+
+        // Resolvemos el MIME type: usamos el del caller, o lo detectamos de los magic bytes
+        val resolvedMimeType = mimeType?.takeIf { it.isNotBlank() }
+            ?: detectMimeType(imageBytes)
 
         // Construimos la lista de carpetas para el prompt
         val foldersPrompt = if (existingFolders.isNotEmpty()) {
@@ -93,7 +101,7 @@ class AIVisionService {
                 {"text": ${jsonStringLiteral(prompt)}},
                 {
                   "inline_data": {
-                    "mime_type": "image/jpeg",
+                    "mime_type": "$resolvedMimeType",
                     "data": "$base64Image"
                   }
                 }
@@ -121,6 +129,12 @@ class AIVisionService {
                 val body = response.body?.string() ?: ""
 
                 if (!response.isSuccessful) {
+                    // 429: rate limit de la API — mensaje específico para que el usuario entienda
+                    if (response.code == 429) {
+                        return Result.failure(
+                            Exception("Límite de peticiones alcanzado. Espera unos minutos y vuelve a intentarlo.")
+                        )
+                    }
                     Log.e(TAG, "Error Gemini HTTP ${response.code}: $body")
                     return Result.failure(Exception("Error de Gemini HTTP ${response.code}"))
                 }
@@ -186,5 +200,34 @@ class AIVisionService {
             .replace("\r", "\\r")
             .replace("\t", "\\t")
         return "\"$escaped\""
+    }
+
+    /**
+     * Detecta el MIME type de una imagen a partir de sus primeros bytes (magic bytes).
+     */
+    private fun detectMimeType(bytes: ByteArray): String {
+        if (bytes.size < 4) return "image/jpeg"
+        return when {
+            // JPEG: FF D8 FF
+            bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() ->
+                "image/jpeg"
+
+            // PNG: 89 50 4E 47
+            bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte() ->
+                "image/png"
+
+            // WEBP: 52 49 46 46 ... 57 45 42 50
+            bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
+            bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() ->
+                "image/webp"
+
+            // GIF: 47 49 46 38
+            bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() &&
+            bytes[2] == 0x46.toByte() ->
+                "image/gif"
+
+            else -> "image/jpeg"
+        }
     }
 }
