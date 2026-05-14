@@ -209,11 +209,14 @@ fun PhotoDetailScreen(
                         onClick = {
                             showMenuExpanded = false
                             val desc = detailInfo?.analysis?.description ?: return@DropdownMenuItem
+                            val tags = detailInfo.tags.joinToString(" ") { "#${it.name.replace(" ", "")}" }
+                            val fullText = "$desc\n\n$tags"
+                            
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(
-                                ClipData.newPlainText("PixDate", desc)
+                                ClipData.newPlainText("PixDate", fullText)
                             )
-                            Toast.makeText(context, "Descripción copiada", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Post copiado con tags", Toast.LENGTH_SHORT).show()
                         }
                     )
 
@@ -241,11 +244,7 @@ fun PhotoDetailScreen(
         // ══════════════════════════════════════════════════════════
         // ── Imagen Principal (más grande) ────────────────────────
         // ══════════════════════════════════════════════════════════
-        val imageModel: Any = if (photo.contentUri.startsWith("file:///android_asset")) {
-            "file:///android_asset/sample_images/${photo.displayName}"
-        } else {
-            Uri.parse(photo.contentUri)
-        }
+        val imageModel: Any = Uri.parse(photo.contentUri)
 
         Box(
             modifier = Modifier

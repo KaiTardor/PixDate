@@ -9,9 +9,11 @@ import com.example.pixdate.data.repository.PixDateRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.pixdate.data.local.entity.PhotoEntity
 
 class FoldersViewModel(
     private val repository: PixDateRepository
@@ -30,6 +32,21 @@ class FoldersViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS),
             initialValue = emptyList()
+        )
+
+    /**
+     * Mapa de fotos agrupadas por ID de carpeta (Optimizado en el ViewModel).
+     */
+    val photosByFolderId: StateFlow<Map<Long, List<PhotoEntity>>> = repository.getAllPhotos()
+        .map { photos ->
+            photos
+                .filter { it.folderId != null }
+                .groupBy { it.folderId!! }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(SUBSCRIPTION_TIMEOUT_MS),
+            initialValue = emptyMap()
         )
 
     /**
@@ -146,6 +163,22 @@ class FoldersViewModel(
                     "Error eliminando carpeta ${folder.folderId}: ${e.message}",
                     e
                 )
+            }
+        }
+    }
+
+    /**
+     * Limpia todas las carpetas que no tengan fotos asociadas.
+     */
+    fun cleanupEmptyFolders() {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.deleteEmptyFolders()
+                }
+                Log.d(TAG, "Limpieza de carpetas vacías completada")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error limpiando carpetas vacías: ${e.message}", e)
             }
         }
     }

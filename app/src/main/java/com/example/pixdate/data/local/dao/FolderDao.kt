@@ -29,4 +29,7 @@ interface FolderDao {
 
     @androidx.room.Delete
     suspend fun deleteFolder(folder: FolderEntity)
+
+    @Query("DELETE FROM folders WHERE folderId NOT IN (SELECT DISTINCT folderId FROM photos WHERE folderId IS NOT NULL)")
+    suspend fun deleteEmptyFolders()
 }

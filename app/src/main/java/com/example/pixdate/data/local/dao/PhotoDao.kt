@@ -13,15 +13,19 @@ interface PhotoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPhoto(photo: PhotoEntity): Long
 
+    @Query("DELETE FROM photos WHERE photoId = :photoId")
+    suspend fun deletePhoto(photoId: Long)
+
     @Query("SELECT * FROM photos ORDER BY dateTaken DESC")
     fun getAllPhotosFlow(): Flow<List<PhotoEntity>>
+
+    @Query("SELECT * FROM photos")
+    suspend fun getAllPhotosSync(): List<PhotoEntity>
 
 
     @Query("UPDATE photos SET isProcessed = :isProcessed, updatedAt = :updatedAt WHERE photoId = :photoId")
     suspend fun updateProcessedStatus(photoId: Long, isProcessed: Boolean, updatedAt: Long)
 
-    @Query("SELECT COUNT(*) FROM photos")
-    suspend fun getPhotoCount(): Int
 
     @Query("""
     UPDATE photos

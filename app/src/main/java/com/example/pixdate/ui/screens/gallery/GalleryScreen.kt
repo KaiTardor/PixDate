@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -42,9 +43,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.runtime.mutableIntStateOf
 import com.example.pixdate.data.local.entity.PhotoEntity
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -80,16 +84,15 @@ fun GalleryScreen(
     selectedDate: LocalDate?,
     onNextMonth: () -> Unit,
     onPrevMonth: () -> Unit,
+    onNextWeek: () -> Unit = {},
+    onPrevWeek: () -> Unit = {},
     onSelectDate: (LocalDate) -> Unit,
     onPhotoClick: (PhotoEntity) -> Unit,
-    onYearMonthSelected: (YearMonth) -> Unit
+    onYearMonthSelected: (YearMonth) -> Unit,
+    isSyncing: Boolean = false,
+    syncProgress: Float = 0f
 ) {
-    /*
-     * Ordenamos por fecha descendente para que el modo secuencial muestre primero las fotos más recientes.
-     */
-    val sortedGroupedPhotos = remember(groupedPhotos) {
-        groupedPhotos.toSortedMap(compareByDescending { date -> date })
-    }
+    var isCollapsed by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -97,28 +100,41 @@ fun GalleryScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(innerPadding)
     ) {
-        if (sortedGroupedPhotos.isEmpty()) {
-            EmptyGalleryState()
-        } else {
-            when (viewMode) {
-                GalleryViewMode.CALENDAR -> {
-                    CalendarView(
-                        groupedPhotos = sortedGroupedPhotos,
-                        currentYearMonth = currentYearMonth,
-                        selectedDate = selectedDate,
-                        onNextMonth = onNextMonth,
-                        onPrevMonth = onPrevMonth,
-                        onSelectDate = onSelectDate,
-                        onPhotoClick = onPhotoClick,
-                        onYearMonthSelected = onYearMonthSelected
-                    )
-                }
+        if (isSyncing) {
+            LinearProgressIndicator(
+                progress = syncProgress,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
-                GalleryViewMode.SEQUENTIAL -> {
-                    SequentialView(
-                        groupedPhotos = sortedGroupedPhotos,
-                        onPhotoClick = onPhotoClick
-                    )
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (groupedPhotos.isEmpty()) {
+                EmptyGalleryState()
+            } else {
+                when (viewMode) {
+                    GalleryViewMode.CALENDAR -> {
+                        CalendarView(
+                            groupedPhotos = groupedPhotos,
+                            currentYearMonth = currentYearMonth,
+                            selectedDate = selectedDate,
+                            isCollapsed = isCollapsed,
+                            onCollapsedChange = { isCollapsed = it },
+                            onNextMonth = if (isCollapsed) onNextWeek else onNextMonth,
+                            onPrevMonth = if (isCollapsed) onPrevWeek else onPrevMonth,
+                            onSelectDate = onSelectDate,
+                            onPhotoClick = onPhotoClick,
+                            onYearMonthSelected = onYearMonthSelected
+                        )
+                    }
+
+                    GalleryViewMode.SEQUENTIAL -> {
+                        SequentialView(
+                            groupedPhotos = groupedPhotos,
+                            onPhotoClick = onPhotoClick
+                        )
+                    }
                 }
             }
         }
@@ -248,6 +264,8 @@ private fun CalendarView(
     groupedPhotos: Map<LocalDate, List<PhotoEntity>>,
     currentYearMonth: YearMonth,
     selectedDate: LocalDate?,
+    isCollapsed: Boolean,
+    onCollapsedChange: (Boolean) -> Unit,
     onNextMonth: () -> Unit,
     onPrevMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit,
@@ -255,10 +273,6 @@ private fun CalendarView(
     onYearMonthSelected: (YearMonth) -> Unit
 ) {
     var showDatePicker by remember {
-        mutableStateOf(false)
-    }
-
-    var isCollapsed by remember {
         mutableStateOf(false)
     }
 
@@ -275,7 +289,9 @@ private fun CalendarView(
 
     /*
      * Conexión de scroll anidado para detectar scrolls en el grid de fotos y colapsar/expandir la cabecera del calendario.
+     * Usamos rememberUpdatedState para que la conexión siempre use la lambda más reciente sin recrearse.
      */
+    val currentOnCollapsedChange by androidx.compose.runtime.rememberUpdatedState(onCollapsedChange)
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(
@@ -283,7 +299,7 @@ private fun CalendarView(
                 source: NestedScrollSource
             ): Offset {
                 if (available.y < -5f) {
-                    isCollapsed = true
+                    currentOnCollapsedChange(true)
                 }
 
                 return Offset.Zero
@@ -295,7 +311,7 @@ private fun CalendarView(
                 source: NestedScrollSource
             ): Offset {
                 if (available.y > 5f) {
-                    isCollapsed = false
+                    currentOnCollapsedChange(false)
                 }
 
                 return Offset.Zero
@@ -567,15 +583,27 @@ private fun SelectedDayPhotoSection(
     ) {
         when {
             selectedDate == null -> {
-                CenterMessage(
-                    text = "SELECCIONA UN DÍA"
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .nestedScroll(gridNestedScrollConnection),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CenterMessage(text = "SELECCIONA UN DÍA")
+                }
             }
 
             photosForSelectedDate.isNullOrEmpty() -> {
-                CenterMessage(
-                    text = "NO HAY FOTOS EL ${selectedDate.dayOfMonth}"
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .nestedScroll(gridNestedScrollConnection),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CenterMessage(text = "NO HAY FOTOS EL ${selectedDate.dayOfMonth}")
+                }
             }
 
             else -> {

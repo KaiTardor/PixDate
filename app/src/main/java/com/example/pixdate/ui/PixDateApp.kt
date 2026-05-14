@@ -1,6 +1,15 @@
 package com.example.pixdate.ui
 
+import android.Manifest
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -33,6 +42,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,10 +51,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -76,6 +91,7 @@ import com.example.pixdate.ui.screens.gallery.GalleryViewModel
 import com.example.pixdate.ui.screens.gallery.GalleryViewModelFactory
 import com.example.pixdate.ui.screens.gallery.PhotoFilter
 import com.example.pixdate.ui.screens.legal.LegalScreen
+import com.example.pixdate.notifications.NotificationHelper
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,7 +108,10 @@ enum class BottomSection {
 }
 
 @Composable
-fun PixDateApp() {
+fun PixDateApp(
+    initialPhotoId: Long? = null,
+    onPhotoOpened: () -> Unit = {}
+) {
     var selectedSection by rememberSaveable {
         mutableStateOf(BottomSection.GALLERY)
     }
@@ -114,8 +133,12 @@ fun PixDateApp() {
         )
     }
 
+    val prefs = remember(appContext) {
+        appContext.getSharedPreferences("pixdate_prefs", android.content.Context.MODE_PRIVATE)
+    }
+
     val galleryViewModel: GalleryViewModel = viewModel(
-        factory = GalleryViewModelFactory(repository)
+        factory = GalleryViewModelFactory(repository, prefs)
     )
 
     val foldersViewModel: FoldersViewModel = viewModel(
@@ -133,10 +156,15 @@ fun PixDateApp() {
         mutableStateOf(false)
     }
 
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+
     /*
      * Estados observados desde los ViewModels.
      */
     val foldersList by foldersViewModel.folders.collectAsStateWithLifecycle()
+    val photosByFolderId by foldersViewModel.photosByFolderId.collectAsStateWithLifecycle()
 
     val groupedPhotos by galleryViewModel.groupedPhotos.collectAsStateWithLifecycle()
     val viewMode by galleryViewModel.viewMode.collectAsStateWithLifecycle()
@@ -146,6 +174,9 @@ fun PixDateApp() {
     val selectedPhoto by galleryViewModel.selectedPhoto.collectAsStateWithLifecycle()
     val selectedPhotoDetail by galleryViewModel.selectedPhotoDetail.collectAsStateWithLifecycle()
     val processingState by galleryViewModel.processingState.collectAsStateWithLifecycle()
+    
+    val isSyncing by galleryViewModel.isSyncing.collectAsStateWithLifecycle()
+    val syncProgress by galleryViewModel.syncProgress.collectAsStateWithLifecycle()
 
     /*
      * Carpeta actualmente seleccionada.
@@ -165,11 +196,112 @@ fun PixDateApp() {
         }
     }
 
+
     /*
-     * Importación inicial.
+     * Petición de permisos inicial.
      */
+    val permissionsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val readGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions[Manifest.permission.READ_MEDIA_IMAGES] == true
+        } else {
+            permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+        }
+
+        if (readGranted) {
+            // Cuando se conceden los permisos, sincronizamos toda la galería
+            galleryViewModel.syncMediaStore(appContext)
+        }
+    }
+
+    // Manejo de la navegación hacia atrás del sistema
+    BackHandler(
+        enabled = selectedPhoto != null || selectedSection != BottomSection.GALLERY || selectedFolder != null
+    ) {
+        if (selectedPhoto != null) {
+            galleryViewModel.clearSelectedPhoto()
+        } else if (selectedFolder != null) {
+            selectedFolder = null
+        } else if (selectedSection != BottomSection.GALLERY) {
+            selectedSection = BottomSection.GALLERY
+        }
+    }
+
     LaunchedEffect(Unit) {
-        galleryViewModel.autoImportIfEmpty(appContext)
+        val permissionsToRequest = mutableListOf(
+            Manifest.permission.CAMERA
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        permissionsLauncher.launch(permissionsToRequest.toTypedArray())
+
+        // Inicializar canal de notificaciones
+        NotificationHelper.createNotificationChannel(appContext)
+    }
+
+    // Gestión centralizada del ciclo de vida: foreground flag + sincronización automática al reanudar
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> galleryViewModel.isAppInForeground = true
+                Lifecycle.Event.ON_STOP  -> galleryViewModel.isAppInForeground = false
+                Lifecycle.Event.ON_RESUME -> {
+                    val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                    } else {
+                        ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    }
+                    if (hasPermission) {
+                        galleryViewModel.syncMediaStore(appContext)
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    /*
+     * Algunas pantallas necesitan las fotos en formato plano, remember evita recalcular flatten() en cada recomposición.
+     */
+    val flatPhotos = remember(groupedPhotos) {
+        groupedPhotos.values.flatten()
+    }
+
+    // Observar eventos de análisis completado para Snackbar
+    LaunchedEffect(galleryViewModel) {
+        galleryViewModel.analysisCompletedEvent.collect { event ->
+            // Mostrar Snackbar si la app está abierta
+            val message = if (event.isSuccess) {
+                "¡Análisis completado para ${event.photoName}!"
+            } else {
+                "No se pudo analizar ${event.photoName}"
+            }
+            val action = if (event.isSuccess) "Ver resultado" else "Ver"
+            
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = action
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                // Seleccionar la foto desde el estado actualizado de la galería
+                val currentPhotos = galleryViewModel.groupedPhotos.value.values.flatten()
+                val photo = currentPhotos.find { it.photoId == event.photoId }
+                if (photo != null) {
+                    galleryViewModel.selectPhoto(photo)
+                    selectedSection = BottomSection.GALLERY
+                }
+            }
+        }
     }
 
     /*
@@ -240,11 +372,16 @@ fun PixDateApp() {
         cameraLauncher.launch(uri)
     }
 
-    /*
-     * Algunas pantallas necesitan las fotos en formato plano, remember evita recalcular flatten() en cada recomposición.
-     */
-    val flatPhotos = remember(groupedPhotos) {
-        groupedPhotos.values.flatten()
+    // Gestionar la apertura de foto desde la notificación
+    LaunchedEffect(initialPhotoId, flatPhotos) {
+        if (initialPhotoId != null) {
+            val photo = flatPhotos.find { it.photoId == initialPhotoId }
+            if (photo != null) {
+                galleryViewModel.selectPhoto(photo)
+                selectedSection = BottomSection.GALLERY
+                onPhotoOpened()
+            }
+        }
     }
 
     val selectedFolderPhotos = remember(flatPhotos, selectedFolder) {
@@ -267,6 +404,7 @@ fun PixDateApp() {
         )
     } else {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 if (selectedPhoto == null) {
                     PixDateTopBar(
@@ -296,9 +434,7 @@ fun PixDateApp() {
                 PixDateBottomBar(
                     selectedSection = selectedSection,
                     onSectionSelected = { section ->
-                        if (section == BottomSection.CAMERA) {
-                            launchCamera()
-                        } else {
+                        if (section != BottomSection.CAMERA) {
                             /*
                              * Al cambiar de sección, cerramos el detalle de foto.para mayor "fijacion"
                              */
@@ -306,10 +442,15 @@ fun PixDateApp() {
 
                             selectedSection = section
 
-                            if (section != BottomSection.FOLDERS) {
+                            if (section == BottomSection.FOLDERS) {
+                                foldersViewModel.cleanupEmptyFolders()
+                            } else {
                                 selectedFolder = null
                             }
                         }
+                    },
+                    onCameraClick = {
+                        launchCamera()
                     }
                 )
             }
@@ -348,21 +489,15 @@ fun PixDateApp() {
                             groupedPhotos = groupedPhotos,
                             currentYearMonth = currentYearMonth,
                             selectedDate = selectedDate,
-                            onNextMonth = {
-                                galleryViewModel.nextMonth()
-                            },
-                            onPrevMonth = {
-                                galleryViewModel.prevMonth()
-                            },
-                            onSelectDate = { date ->
-                                galleryViewModel.selectDate(date)
-                            },
-                            onPhotoClick = { clickedPhoto ->
-                                galleryViewModel.selectPhoto(clickedPhoto)
-                            },
-                            onYearMonthSelected = { yearMonth ->
-                                galleryViewModel.setYearMonth(yearMonth)
-                            }
+                            onNextMonth = { galleryViewModel.nextMonth() },
+                            onPrevMonth = { galleryViewModel.prevMonth() },
+                            onNextWeek = { galleryViewModel.nextWeek() },
+                            onPrevWeek = { galleryViewModel.prevWeek() },
+                            onSelectDate = { date -> galleryViewModel.selectDate(date) },
+                            onPhotoClick = { clickedPhoto -> galleryViewModel.selectPhoto(clickedPhoto) },
+                            onYearMonthSelected = { yearMonth -> galleryViewModel.setYearMonth(yearMonth) },
+                            isSyncing = isSyncing,
+                            syncProgress = syncProgress
                         )
                     }
                 }
@@ -426,12 +561,12 @@ fun PixDateApp() {
                         FoldersScreen(
                             innerPadding = innerPadding,
                             folders = foldersList,
-                            flatPhotos = flatPhotos,
+                            photosByFolderId = photosByFolderId,
                             onCreateFolder = { name ->
                                 foldersViewModel.createFolder(name)
                             },
-                            onFolderClick = { folder ->
-                                selectedFolder = folder.folderId
+                            onFolderClick = { folderId ->
+                                selectedFolder = folderId
                             }
                         )
                     }
@@ -828,7 +963,8 @@ fun EditFolderDialog(
 @Composable
 fun PixDateBottomBar(
     selectedSection: BottomSection,
-    onSectionSelected: (BottomSection) -> Unit
+    onSectionSelected: (BottomSection) -> Unit,
+    onCameraClick: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.primary,
@@ -862,9 +998,7 @@ fun PixDateBottomBar(
 
             CameraBarItem(
                 modifier = Modifier.weight(0.2f),
-                onClick = {
-                    onSectionSelected(BottomSection.CAMERA)
-                }
+                onClick = onCameraClick
             )
 
             BottomBarItem(

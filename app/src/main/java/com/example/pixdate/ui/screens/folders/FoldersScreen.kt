@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -36,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.pixdate.data.local.entity.FolderEntity
 import com.example.pixdate.data.local.entity.PhotoEntity
+import com.example.pixdate.ui.theme.PrimaryPastel
 
 /**
  * Pantalla principal de carpetas.
@@ -52,22 +59,11 @@ import com.example.pixdate.data.local.entity.PhotoEntity
 fun FoldersScreen(
     innerPadding: PaddingValues,
     folders: List<FolderEntity>,
-    flatPhotos: List<PhotoEntity>,
-    onCreateFolder: (String) -> Unit,
-    onFolderClick: (FolderEntity) -> Unit
+    photosByFolderId: Map<Long, List<PhotoEntity>>,
+    onFolderClick: (Long) -> Unit,
+    onCreateFolder: (String) -> Unit
 ) {
-    var showCreateDialog by remember {
-        mutableStateOf(false)
-    }
-
-    /*
-     * Agrupamos las fotos por carpeta una sola vez por cambio de flatPhotos.
-     */
-    val photosByFolderId = remember(flatPhotos) {
-        flatPhotos
-            .filter { photo -> photo.folderId != null }
-            .groupBy { photo -> photo.folderId!! }
-    }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -81,29 +77,33 @@ fun FoldersScreen(
             FoldersGrid(
                 folders = folders,
                 photosByFolderId = photosByFolderId,
-                onFolderClick = onFolderClick
+                onFolderClick = { folder -> onFolderClick(folder.folderId) }
             )
         }
 
-        // FAB para crear carpetas manuales
-        FloatingActionButton(
-            onClick = {
-                showCreateDialog = true
-            },
+        // Botón estilo "Cámara" para añadir carpetas
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
+                .width(48.dp)
+                .height(48.dp)
+                .clip(CutCornerShape(8.dp))
+                .background(PrimaryPastel)
                 .border(
                     border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
-                    shape = RoundedCornerShape(16.dp)
-                ),
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            shape = RoundedCornerShape(16.dp)
+                    shape = CutCornerShape(8.dp)
+                )
+                .clickable {
+                    showCreateDialog = true
+                },
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "Crear carpeta"
+                contentDescription = "Crear carpeta",
+                tint = Color.Black,
+                modifier = Modifier.size(22.dp)
             )
         }
     }
@@ -346,9 +346,5 @@ private fun CreateFolderDialog(
  * cámara se guardan como URI real.
  */
 private fun PhotoEntity.toImageModel(): Any {
-    return if (contentUri.startsWith("file:///android_asset")) {
-        "file:///android_asset/sample_images/$displayName"
-    } else {
-        Uri.parse(contentUri)
-    }
+    return Uri.parse(contentUri)
 }
