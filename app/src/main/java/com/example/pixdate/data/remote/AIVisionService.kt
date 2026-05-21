@@ -20,7 +20,7 @@ class AIVisionService {
 
     companion object {
         private const val TAG = "PIXDATE_AI"
-        private const val MODEL = "gemini-2.5-flash"
+        internal const val MODEL = "gemini-2.5-flash"
     }
 
     data class ImageAnalysis(

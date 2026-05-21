@@ -178,14 +178,19 @@ fun PhotoDetailScreen(
                 DropdownMenu(
                     expanded = showMenuExpanded,
                     onDismissRequest = { showMenuExpanded = false },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                    containerColor = MaterialTheme.colorScheme.background,
+                    shape = RectangleShape,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
                 ) {
                     // Compartir imagen
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "Compartir",
-                                color = MaterialTheme.colorScheme.onSurface
+                                "COMPARTIR",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
                             )
                         },
                         onClick = {
@@ -194,15 +199,17 @@ fun PhotoDetailScreen(
                         }
                     )
 
-                    // Copiar descripción (Postear)
+                    // Copia descripción + tags al portapapeles en formato listo para publicar
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "Postear",
+                                "POSTEAR",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = if (detailInfo?.analysis?.description != null)
-                                    MaterialTheme.colorScheme.onSurface
+                                    MaterialTheme.colorScheme.onBackground
                                 else
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                             )
                         },
                         enabled = detailInfo?.analysis?.description != null,
@@ -211,24 +218,23 @@ fun PhotoDetailScreen(
                             val desc = detailInfo?.analysis?.description ?: return@DropdownMenuItem
                             val tags = detailInfo.tags.joinToString(" ") { "#${it.name.replace(" ", "")}" }
                             val fullText = "$desc\n\n$tags"
-                            
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(
-                                ClipData.newPlainText("PixDate", fullText)
-                            )
+                            clipboard.setPrimaryClip(ClipData.newPlainText("PixDate", fullText))
                             Toast.makeText(context, "Post copiado con tags", Toast.LENGTH_SHORT).show()
                         }
                     )
 
-                    // Más info
+                    // Información técnica del análisis (modelo, fecha, carpeta)
                     DropdownMenuItem(
                         text = {
                             Text(
-                                "Más info",
+                                "MÁS INFO",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = if (detailInfo?.analysis != null)
-                                    MaterialTheme.colorScheme.onSurface
+                                    MaterialTheme.colorScheme.onBackground
                                 else
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                             )
                         },
                         enabled = detailInfo?.analysis != null,
@@ -238,6 +244,7 @@ fun PhotoDetailScreen(
                         }
                     )
                 }
+
             }
         }
 
@@ -378,29 +385,11 @@ fun PhotoDetailScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Categoría + Tags en una sola fila de chips
+                    // Tags
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Chip de categoría (naranja)
-                        Box(
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primary)
-                                .border(
-                                    BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
-                                )
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = analysis.mainCategory ?: "OTHER",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-
-                        // Tags
                         detailInfo.tags.forEach { tag ->
                             Box(
                                 modifier = Modifier
@@ -419,15 +408,7 @@ fun PhotoDetailScreen(
                         }
                     }
 
-                    // Carpeta (si existe)
-                    if (detailInfo.folder != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Carpeta: ${detailInfo.folder.name}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                        )
-                    }
+
                 }
             }
 
@@ -613,9 +594,9 @@ fun PhotoDetailScreen(
         AlertDialog(
             onDismissRequest = { showMoreInfoDialog = false },
             shape = RectangleShape,
-            containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
+            containerColor = MaterialTheme.colorScheme.background,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            textContentColor = MaterialTheme.colorScheme.onBackground,
             title = {
                 Text("INFORMACIÓN DEL ANÁLISIS", fontWeight = FontWeight.Bold)
             },
@@ -650,6 +631,10 @@ fun PhotoDetailScreen(
 // ── Funciones auxiliares ─────────────────────────────────────────
 // ═════════════════════════════════════════════════════════════════
 
+/**
+ * Lanza el selector de apps del sistema para compartir la imagen de [photo].
+ * Usa el MIME type real de la foto; si es desconocido, cae en "image".
+ */
 private fun shareImage(context: Context, photo: PhotoEntity) {
     try {
         val uri = Uri.parse(photo.contentUri)
@@ -664,6 +649,9 @@ private fun shareImage(context: Context, photo: PhotoEntity) {
     }
 }
 
+/**
+ * Fila de información clave-valor para el diálogo de detalles del análisis.
+ */
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(
@@ -675,12 +663,12 @@ private fun InfoRow(label: String, value: String) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold
         )
     }

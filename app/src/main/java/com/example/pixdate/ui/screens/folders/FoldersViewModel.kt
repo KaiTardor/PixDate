@@ -145,9 +145,10 @@ class FoldersViewModel(
     /**
      * Elimina una carpeta.
      *
-     * Importante:
-     * Este método solo borra la carpeta. El comportamiento de las fotos asociadas
-     * depende de cómo tengas definido Room:
+     * Importante: Este método solo borra la carpeta de la base de datos local.
+     * Las fotos asociadas perderán su referencia a la carpeta (folderId = null) 
+     * mediante la estrategia de OnConflict o actualización previa. No se borran
+     * del dispositivo.
      */
     fun deleteFolder(folder: FolderEntity) {
         viewModelScope.launch {

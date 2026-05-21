@@ -2,9 +2,10 @@ package com.example.pixdate.ui.screens.folders
 
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +64,9 @@ fun FoldersScreen(
     folders: List<FolderEntity>,
     photosByFolderId: Map<Long, List<PhotoEntity>>,
     onFolderClick: (Long) -> Unit,
-    onCreateFolder: (String) -> Unit
+    onCreateFolder: (String) -> Unit,
+    onRenameFolder: (FolderEntity, String) -> Unit,
+    onDeleteFolder: (FolderEntity) -> Unit
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
 
@@ -77,7 +82,9 @@ fun FoldersScreen(
             FoldersGrid(
                 folders = folders,
                 photosByFolderId = photosByFolderId,
-                onFolderClick = { folder -> onFolderClick(folder.folderId) }
+                onFolderClick = { folder -> onFolderClick(folder.folderId) },
+                onRenameFolder = onRenameFolder,
+                onDeleteFolder = onDeleteFolder
             )
         }
 
@@ -94,9 +101,9 @@ fun FoldersScreen(
                     border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
                     shape = CutCornerShape(8.dp)
                 )
-                .clickable {
-                    showCreateDialog = true
-                },
+                .combinedClickable(
+                    onClick = { showCreateDialog = true }
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -145,7 +152,9 @@ private fun EmptyFoldersState() {
 private fun FoldersGrid(
     folders: List<FolderEntity>,
     photosByFolderId: Map<Long, List<PhotoEntity>>,
-    onFolderClick: (FolderEntity) -> Unit
+    onFolderClick: (FolderEntity) -> Unit,
+    onRenameFolder: (FolderEntity, String) -> Unit,
+    onDeleteFolder: (FolderEntity) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -165,9 +174,9 @@ private fun FoldersGrid(
                 folder = folder,
                 photosCount = folderPhotos.size,
                 latestPhoto = latestPhoto,
-                onClick = {
-                    onFolderClick(folder)
-                }
+                onClick = { onFolderClick(folder) },
+                onRename = { newName -> onRenameFolder(folder, newName) },
+                onDelete = { onDeleteFolder(folder) }
             )
         }
     }
@@ -176,45 +185,153 @@ private fun FoldersGrid(
 /**
  * Tarjeta individual de carpeta.
  *
- * Si la carpeta tiene fotos, muestra la imagen más reciente como portada.
- * Si está vacía, muestra un icono de carpeta.
+ * - Tap corto: abre la carpeta.
+ * - Tap largo: muestra menú contextual de Renombrar / Eliminar.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderItem(
     folder: FolderEntity,
     photosCount: Int,
     latestPhoto: PhotoEntity?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .clickable {
-                onClick()
-            },
-        shape = RectangleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            FolderThumbnail(
-                photo = latestPhoto,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
+    var showContextMenu by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
-            FolderInfo(
-                folder = folder,
-                photosCount = photosCount
+    Box {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showContextMenu = true }
+                ),
+            shape = RectangleShape,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                FolderThumbnail(
+                    photo = latestPhoto,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+
+                FolderInfo(
+                    folder = folder,
+                    photosCount = photosCount
+                )
+            }
+        }
+
+        // Menú contextual (aparece al hacer long press)
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            shape = RectangleShape,
+            shadowElevation = 0.dp,
+            border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "RENOMBRAR",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                },
+                onClick = {
+                    showContextMenu = false
+                    showRenameDialog = true
+                }
+            )
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = "ELIMINAR",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                },
+                onClick = {
+                    showContextMenu = false
+                    showDeleteConfirm = true
+                }
             )
         }
+
+    }
+
+    // Diálogo de renombrar
+    if (showRenameDialog) {
+        RenameFolderDialog(
+            currentName = folder.name,
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName ->
+                onRename(newName)
+                showRenameDialog = false
+            }
+        )
+    }
+
+    // Diálogo de confirmación de borrado
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            shape = RectangleShape,
+            containerColor = MaterialTheme.colorScheme.background,
+            titleContentColor = MaterialTheme.colorScheme.onBackground,
+            textContentColor = MaterialTheme.colorScheme.onBackground,
+            title = {
+                Text(
+                    "ELIMINAR CARPETA",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Text(
+                    "¿Eliminar la carpeta \"${folder.name}\"? Las fotos no se borrarán del dispositivo.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete()
+                    showDeleteConfirm = false
+                }) {
+                    Text(
+                        "ELIMINAR",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(
+                        "CANCELAR",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+        )
+
     }
 }
 
@@ -280,6 +397,51 @@ private fun FolderInfo(
 }
 
 /**
+ * Diálogo para renombrar una carpeta existente.
+ */
+@Composable
+private fun RenameFolderDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var newName by remember { mutableStateOf(currentName) }
+    val trimmed = newName.trim()
+    val canConfirm = trimmed.isNotEmpty() && trimmed != currentName
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RectangleShape,
+        containerColor = MaterialTheme.colorScheme.surface,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
+        title = { Text("RENOMBRAR CARPETA", fontWeight = FontWeight.Bold) },
+        text = {
+            OutlinedTextField(
+                value = newName,
+                onValueChange = { newName = it },
+                label = { Text("Nuevo nombre") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                enabled = canConfirm,
+                onClick = { onConfirm(trimmed) }
+            ) {
+                Text("GUARDAR")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCELAR")
+            }
+        }
+    )
+}
+
+/**
  * Diálogo para crear una carpeta manualmente.
  */
 @Composable
@@ -341,9 +503,6 @@ private fun CreateFolderDialog(
 
 /**
  * Convierte una PhotoEntity en un modelo válido para Coil.
- *
- * Las fotos importadas desde CSV se guardan como assets. Las capturadas por
- * cámara se guardan como URI real.
  */
 private fun PhotoEntity.toImageModel(): Any {
     return Uri.parse(contentUri)

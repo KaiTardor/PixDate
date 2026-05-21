@@ -152,10 +152,10 @@ fun PixDateApp(
         mutableStateOf<Long?>(null)
     }
 
-    var showEditFolderDialog by remember {
-        mutableStateOf(false)
-    }
+    var showEditFolderDialog by remember { mutableStateOf(false) }
 
+    /** Indicador de acceso parcial a la galería (Android 14+). */
+    var showPartialAccessBanner by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -203,15 +203,24 @@ fun PixDateApp(
     val permissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val readGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val fullAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions[Manifest.permission.READ_MEDIA_IMAGES] == true
         } else {
             permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
         }
+        // Android 14+: el usuario puede elegir acceso parcial
+        val partialAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            permissions[Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED] == true
 
-        if (readGranted) {
-            // Cuando se conceden los permisos, sincronizamos toda la galería
-            galleryViewModel.syncMediaStore(appContext)
+        when {
+            fullAccess -> {
+                showPartialAccessBanner = false
+                galleryViewModel.syncMediaStore(appContext, force = true)
+            }
+            partialAccess -> {
+                showPartialAccessBanner = true
+                galleryViewModel.syncMediaStore(appContext, force = true)
+            }
         }
     }
 
@@ -229,18 +238,21 @@ fun PixDateApp(
     }
 
     LaunchedEffect(Unit) {
-        val permissionsToRequest = mutableListOf(
-            Manifest.permission.CAMERA
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        val permissionsToRequest = mutableListOf(Manifest.permission.CAMERA)
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                // Android 14+: solicitar acceso completo Y permiso de acceso parcial
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            else -> permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
         permissionsLauncher.launch(permissionsToRequest.toTypedArray())
-
-        // Inicializar canal de notificaciones
         NotificationHelper.createNotificationChannel(appContext)
     }
 
@@ -252,13 +264,23 @@ fun PixDateApp(
                 Lifecycle.Event.ON_START -> galleryViewModel.isAppInForeground = true
                 Lifecycle.Event.ON_STOP  -> galleryViewModel.isAppInForeground = false
                 Lifecycle.Event.ON_RESUME -> {
-                    val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val fullAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
                     } else {
                         ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
                     }
-                    if (hasPermission) {
-                        galleryViewModel.syncMediaStore(appContext)
+                    val partialAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                        ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+
+                    when {
+                        fullAccess -> {
+                            showPartialAccessBanner = false
+                            galleryViewModel.syncMediaStore(appContext)
+                        }
+                        partialAccess -> {
+                            showPartialAccessBanner = true
+                            galleryViewModel.syncMediaStore(appContext)
+                        }
                     }
                 }
                 else -> Unit
@@ -267,6 +289,25 @@ fun PixDateApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Banner de acceso parcial a la galería (Android 14+)
+    LaunchedEffect(showPartialAccessBanner) {
+        if (showPartialAccessBanner) {
+            val result = snackbarHostState.showSnackbar(
+                message = "Acceso parcial a la galería. Algunas fotos pueden no aparecer.",
+                actionLabel = "Ajustes",
+                duration = androidx.compose.material3.SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                val intent = android.content.Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", appContext.packageName, null)
+                )
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                appContext.startActivity(intent)
+            }
         }
     }
 
@@ -503,21 +544,8 @@ fun PixDateApp(
                 }
 
                 BottomSection.CAMERA -> {
-                    /*
-                     * Normalmente esta pantalla no se llega a ver porque el botón
-                     * de cámara lanza directamente una Activity externa.
-                     */
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "ABRIENDO CÁMARA...",
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                    }
+                    // El botón de cámara lanza directamente una Activity externa;
+                    // esta rama nunca se renderiza.
                 }
 
                 BottomSection.FOLDERS -> {
@@ -567,6 +595,12 @@ fun PixDateApp(
                             },
                             onFolderClick = { folderId ->
                                 selectedFolder = folderId
+                            },
+                            onRenameFolder = { folder, newName ->
+                                foldersViewModel.renameFolder(folder, newName)
+                            },
+                            onDeleteFolder = { folder ->
+                                foldersViewModel.deleteFolder(folder)
                             }
                         )
                     }

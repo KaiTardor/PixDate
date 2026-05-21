@@ -93,13 +93,12 @@ class GalleryViewModel(
         private const val CAMERA_FOLDER_NAME = "CÁMARA"
         private const val CAMERA_FOLDER_DESCRIPTION = "Fotos capturadas directamente desde la app"
 
-        private const val IMPORTED_FOLDER_NAME = "IMPORTADAS"
-        private const val IMPORTED_FOLDER_DESCRIPTION = "Fotos importadas desde la galería nativa"
-
         private const val AI_FOLDER_DESCRIPTION = "Carpeta auto-generada por IA"
         private const val AI_TAG_SOURCE = "AI"
 
-        private const val AI_MODEL_USED = "gemini-2.5-flash"
+        /** Tiempo mínimo entre sincronizaciones completas (5 minutos). */
+        private const val SYNC_DEBOUNCE_MS = 5 * 60 * 1_000L
+        private const val PREFS_LAST_SYNC_KEY = "last_sync_ts"
     }
 
     // -------------------------------------------------------------------------
@@ -225,6 +224,11 @@ class GalleryViewModel(
         loadPendingAnalysesFromPrefs()
     }
 
+    /**
+     * Deserializa los análisis pendientes almacenados en SharedPreferences al arrancar el ViewModel.
+     * Esto permite restaurar el estado de comparación entre sesiones si la app fue cerrada
+     * mientras había resultados de IA sin confirmar.
+     */
     private fun loadPendingAnalysesFromPrefs() {
         val saved = prefs.getString("pending_analyses", null)
         if (saved != null) {
@@ -275,6 +279,10 @@ class GalleryViewModel(
         }
     }
 
+    /**
+     * Serializa el mapa de análisis pendientes a JSON y lo guarda en SharedPreferences,
+     * para que sobrevivan cierres de la app.
+     */
     private fun savePendingAnalysesToPrefs() {
         try {
             val jsonArray = org.json.JSONArray()
@@ -348,13 +356,6 @@ class GalleryViewModel(
      */
     fun resetProcessingState() {
         _processingState.value = ProcessingState.Idle
-    }
-
-    /**
-     * Limpia solo el detalle, manteniendo la foto seleccionada.
-     */
-    fun clearPhotoDetail() {
-        _selectedPhotoDetail.value = null
     }
 
     /**
@@ -656,10 +657,21 @@ class GalleryViewModel(
 
     /**
      * Sincroniza todas las imágenes del dispositivo desde MediaStore hacia la base de datos de Room.
+     *
+     * Implementa un debounce de [SYNC_DEBOUNCE_MS] para evitar sincronizaciones innecesarias
+     * cuando el usuario sale y vuelve a la app en intervalos cortos.
+     * Pasa [force] = true para saltar el debounce (por ejemplo, al conceder permisos por primera vez).
      */
-    fun syncMediaStore(context: Context) {
+    fun syncMediaStore(context: Context, force: Boolean = false) {
         if (syncJob?.isActive == true) {
             Log.d(TAG_DB, "Sincronización ya en curso. Omitiendo...")
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val lastSync = prefs.getLong(PREFS_LAST_SYNC_KEY, 0L)
+        if (!force && (now - lastSync) < SYNC_DEBOUNCE_MS) {
+            Log.d(TAG_DB, "Sincronización omitida: última hace ${(now - lastSync) / 1000}s (debounce ${SYNC_DEBOUNCE_MS / 1000}s)")
             return
         }
 
@@ -746,6 +758,8 @@ class GalleryViewModel(
                 delay(300) // Pequeña pausa para que se vea el 100%
                 
                 Log.d(TAG_DB, "Sincronización completada con éxito.")
+                prefs.edit().putLong(PREFS_LAST_SYNC_KEY, System.currentTimeMillis()).apply()
+
             } catch (e: Exception) {
                 Log.e(TAG_DB, "Error sincronizando MediaStore: ${e.message}", e)
             } finally {
@@ -754,8 +768,6 @@ class GalleryViewModel(
             }
         }
     }
-
-
 
     // -------------------------------------------------------------------------
     // Helpers privados
@@ -875,7 +887,7 @@ class GalleryViewModel(
                 photoId = photo.photoId,
                 description = description,
                 mainCategory = category,
-                modelUsed = AI_MODEL_USED,
+                modelUsed = AIVisionService.MODEL,
                 processedAt = now,
                 confidence = null,
                 errorMessage = null

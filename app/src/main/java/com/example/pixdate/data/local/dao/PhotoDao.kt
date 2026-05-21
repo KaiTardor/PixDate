@@ -22,11 +22,6 @@ interface PhotoDao {
     @Query("SELECT * FROM photos")
     suspend fun getAllPhotosSync(): List<PhotoEntity>
 
-
-    @Query("UPDATE photos SET isProcessed = :isProcessed, updatedAt = :updatedAt WHERE photoId = :photoId")
-    suspend fun updateProcessedStatus(photoId: Long, isProcessed: Boolean, updatedAt: Long)
-
-
     @Query("""
     UPDATE photos
     SET isProcessed = :isProcessed,
