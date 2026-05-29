@@ -69,7 +69,7 @@ object NotificationHelper {
 
         val title = if (isSuccess) "¡Análisis Completado!" else "Hubo un problema"
         val text = if (isSuccess) {
-            "PixDate ha extraído los mejores tags para tu foto. Toca para ver el resultado."
+            "PixDate ha terminado un analisis. Toca para ver los detalles."
         } else {
             "No se pudo procesar tu foto. Inténtalo de nuevo más tarde."
         }

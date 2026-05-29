@@ -15,7 +15,7 @@ data class MediaStoreImage(
 
 object MediaStoreHelper {
     /**
-     * Consulta todas las imágenes del dispositivo usando MediaStore.
+     * Consulta todas las imágenes del dispositivo usando MediaStore de forma asincrona.
      * Retorna una lista con su URI, nombre, mimeType y fecha.
      */
     suspend fun getAllImages(context: Context): List<MediaStoreImage> = withContext(Dispatchers.IO) {

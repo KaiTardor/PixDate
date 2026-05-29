@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * Servicio que conecta con la API de Google Gemini para analizar imágenes.
  *
  * Devuelve un objeto [ImageAnalysis] con descripción, categoría y tags extraídos
- * directamente del JSON que Gemini genera (ya no hay post-procesado heurístico).
+ * directamente del JSON que Gemini genera.
  */
 class AIVisionService {
 
@@ -129,7 +129,7 @@ class AIVisionService {
                 val body = response.body?.string() ?: ""
 
                 if (!response.isSuccessful) {
-                    // 429: rate limit de la API — mensaje específico para que el usuario entienda
+                    // 429: rate limit de la API
                     if (response.code == 429) {
                         return Result.failure(
                             Exception("Límite de peticiones alcanzado. Espera unos minutos y vuelve a intentarlo.")
@@ -164,7 +164,7 @@ class AIVisionService {
             .asJsonObject
             .get("text").asString.trim()
 
-        Log.d(TAG, "Texto bruto de Gemini: $text")
+        // Log.d(TAG, "Texto bruto de Gemini: $text")
 
         return try {
             val parsed = JsonParser.parseString(text).asJsonObject

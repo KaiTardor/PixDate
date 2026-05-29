@@ -138,4 +138,12 @@ class PixDateRepository(
     suspend fun getFolderById(folderId: Long): FolderEntity? {
         return folderDao.getFolderById(folderId)
     }
+
+    /** Asigna una lista de fotos a una carpeta concreta. */
+    suspend fun assignPhotosToFolder(photoIds: List<Long>, folderId: Long) {
+        val now = System.currentTimeMillis()
+        photoIds.forEach { photoId ->
+            photoDao.assignFolder(photoId, folderId, now)
+        }
+    }
 }

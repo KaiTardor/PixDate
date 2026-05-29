@@ -183,6 +183,24 @@ class FoldersViewModel(
             }
         }
     }
+
+    /**
+     * Asigna una lista de fotos a una carpeta.
+     * No altera el estado de procesamiento de las fotos.
+     */
+    fun addPhotosToFolder(photoIds: List<Long>, folderId: Long) {
+        if (photoIds.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    repository.assignPhotosToFolder(photoIds, folderId)
+                }
+                Log.d(TAG, "Asignadas ${photoIds.size} fotos a carpeta $folderId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error asignando fotos a carpeta $folderId: ${e.message}", e)
+            }
+        }
+    }
 }
 
 class FoldersViewModelFactory(

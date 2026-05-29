@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
@@ -130,7 +130,7 @@ fun PhotoDetailScreen(
             // 1. Botón Volver (izquierda)
             IconButton(onClick = onBack) {
                 Icon(
-                    imageVector = Icons.Default.ArrowBack,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Volver",
                     tint = MaterialTheme.colorScheme.onPrimary
                 )
@@ -150,18 +150,15 @@ fun PhotoDetailScreen(
                 )
             }
 
-            // 3. Botón Editar
+            // 3. Botón Editar (disponible para cualquier foto, no sólo las ya procesadas)
             IconButton(
                 onClick = { showEditMode = !showEditMode },
-                enabled = photo.isProcessed && detailInfo?.analysis != null
+                enabled = processingState !is ProcessingState.Loading
             ) {
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "Editar",
-                    tint = if (photo.isProcessed)
-                        MaterialTheme.colorScheme.onPrimary
-                    else
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.4f)
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
 
@@ -296,19 +293,16 @@ fun PhotoDetailScreen(
         // ── Contenido debajo de la imagen ────────────────────────
         // ══════════════════════════════════════════════════════════
 
-        if (photo.isProcessed && detailInfo?.analysis != null) {
-            // ═══ ESTADO: PROCESADA ═══
-            val analysis = detailInfo.analysis
-
-            if (showEditMode) {
-                // ── Modo edición ──────────────────────────────────
+        when {
+            // ═══ MODO EDICIÓN (disponible para todas las fotos) ═══
+            showEditMode && processingState !is ProcessingState.Loading -> {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "EDITAR ANÁLISIS",
+                        text = if (photo.isProcessed) "EDITAR ANÁLISIS" else "AÑADIR DESCRIPCIÓN MANUAL",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -359,6 +353,8 @@ fun PhotoDetailScreen(
                                 onSaveEdit(editDescription, editTags, editCategory)
                                 showEditMode = false
                             },
+                            // Requiere al menos descripción o categoría para guardar
+                            enabled = editDescription.isNotBlank() || editCategory.isNotBlank(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
                             ),
@@ -369,8 +365,11 @@ fun PhotoDetailScreen(
                         }
                     }
                 }
-            } else {
-                // ── Vista de solo lectura (compacta) ──────────────
+            }
+
+            // ═══ ESTADO: PROCESADA (vista de solo lectura) ═══
+            photo.isProcessed && detailInfo?.analysis != null -> {
+                val analysis = detailInfo.analysis
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -407,93 +406,93 @@ fun PhotoDetailScreen(
                             }
                         }
                     }
-
-
                 }
             }
 
-        } else if (processingState is ProcessingState.Error) {
             // ═══ ESTADO: ERROR ═══
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Error,
-                    contentDescription = "Error",
-                    tint = Color.Red,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = processingState.message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Red,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onProcess,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RectangleShape,
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
-                ) {
-                    Text("REINTENTAR", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-        } else if (processingState !is ProcessingState.Loading) {
-            // ═══ ESTADO: SIN PROCESAR (Idle) ═══
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "IMAGEN SIN ANALIZAR",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Pulsa ↻ en la barra para analizar con IA.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = onProcess,
+            processingState is ProcessingState.Error -> {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RectangleShape,
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Default.Error,
+                        contentDescription = "Error",
+                        tint = Color.Red,
+                        modifier = Modifier.size(32.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "ANALIZAR CON IA",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        text = processingState.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Red,
+                        textAlign = TextAlign.Center
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onProcess,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ),
+                        shape = RectangleShape,
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Text("REINTENTAR", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
+            // ═══ ESTADO: SIN PROCESAR (Idle o Loading sin edición) ═══
+            processingState !is ProcessingState.Loading -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "IMAGEN SIN ANALIZAR",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Pulsa ↻ para analizar con IA, o ✎ para añadir una descripción manual.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = onProcess,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ),
+                        shape = RectangleShape,
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ANALIZAR CON IA",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -511,7 +510,7 @@ fun PhotoDetailScreen(
         val new = processingState.newAnalysis
 
         AlertDialog(
-            onDismissRequest = { /* No cerrar si no elige? O permitir cancelar */ },
+            onDismissRequest = onDismissComparison,
             shape = RectangleShape,
             containerColor = MaterialTheme.colorScheme.surface,
             titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -581,7 +580,7 @@ fun PhotoDetailScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = onDismissComparison) { 
+                TextButton(onClick = onDismissComparison) {
                     Text("CANCELAR")
                 }
             }

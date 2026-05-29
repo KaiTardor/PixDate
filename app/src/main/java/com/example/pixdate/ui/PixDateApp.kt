@@ -32,7 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -578,11 +578,15 @@ fun PixDateApp(
                             innerPadding = innerPadding,
                             folder = selectedFolderEntity,
                             photos = selectedFolderPhotos,
+                            allPhotos = flatPhotos,
                             onBack = {
                                 selectedFolder = null
                             },
                             onPhotoClick = { clickedPhoto ->
                                 galleryViewModel.selectPhoto(clickedPhoto)
+                            },
+                            onAddPhotos = { photoIds ->
+                                foldersViewModel.addPhotosToFolder(photoIds, selectedFolderEntity.folderId)
                             }
                         )
                     } else {
@@ -711,7 +715,7 @@ private fun RowScope.FolderDetailTopBarContent(
 ) {
     IconButton(onClick = onBack) {
         Icon(
-            imageVector = Icons.Default.ArrowBack,
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
             contentDescription = "Atrás",
             tint = MaterialTheme.colorScheme.onPrimary
         )

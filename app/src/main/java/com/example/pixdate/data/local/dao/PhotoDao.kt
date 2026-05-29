@@ -35,4 +35,12 @@ interface PhotoDao {
         folderId: Long?,
         updatedAt: Long
     )
+
+    /** Asigna (o desvincula) una foto a una carpeta sin alterar su estado de procesamiento. */
+    @Query("UPDATE photos SET folderId = :folderId, updatedAt = :updatedAt WHERE photoId = :photoId")
+    suspend fun assignFolder(
+        photoId: Long,
+        folderId: Long?,
+        updatedAt: Long
+    )
 }
